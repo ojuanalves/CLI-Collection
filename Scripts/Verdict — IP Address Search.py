@@ -32,12 +32,29 @@ SOURCES
   Address properties
     RFC scope classification, numeric representations, parent networks
 
+  MAC address (auto-detected in the same target field)
+    macvendors.com  OUI vendor lookup
+    maclookup.app   vendor, block type (MA-L/M/S), range, registrant
+    local analysis  I/G + U/L bits, formats, EUI-64 link-local,
+                    virtualization and reserved multicast ranges
+
+  TCP exposure (active, opt-in: off unless requested)
+    connect() probe on default ports 22 23 80 443 5443 8443 10443 11443
+    12443 15443 + any extra ports; open/closed/filtered, RTT, service
+    banner, TLS version/cipher and HTTP Server header
+
 USAGE
 -----
-    python3 ip_investigate.py
+    python3 ip_investigate.py                          interactive
     python3 ip_investigate.py 1.2.3.4
-    python3 ip_investigate.py 1.2.3.4 --json      structured JSON output
-    python3 ip_investigate.py 1.2.3.4 --raw       raw response per source
+    python3 ip_investigate.py 1.2.3.4,5.6.7.8          several targets
+    python3 ip_investigate.py 00:0c:29:ab:cd:ef        MAC vendor lookup
+    python3 ip_investigate.py 1.2.3.4/000c.29ab.cdef   IP and MAC mixed
+    python3 ip_investigate.py 1.2.3.4 --scan           + TCP probe, default ports
+    python3 ip_investigate.py 1.2.3.4 -p 8080,9443     + TCP probe, defaults + extras
+    python3 ip_investigate.py 1.2.3.4 -p 8000-8010     + TCP probe, port range
+    python3 ip_investigate.py 1.2.3.4 --json           structured JSON output
+    python3 ip_investigate.py 1.2.3.4 --raw            raw response per source
 """
 
 import ipaddress
@@ -47,6 +64,7 @@ import os
 import platform
 import re
 import socket
+import ssl
 import sys
 import threading
 import time
@@ -123,6 +141,21 @@ DNSBL_LIST = {
 }
 
 TOR_DNSEL = "dnsel.torproject.org"
+
+VERSION = "4.1"
+
+# TCP exposure probe --------------------------------------------------------
+DEFAULT_PORTS = [22, 23, 80, 443, 5443, 8443, 10443, 11443, 12443, 15443]
+PORT_LABELS = {
+    21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP", 53: "DNS", 80: "HTTP",
+    110: "POP3", 143: "IMAP", 443: "HTTPS", 445: "SMB", 541: "FortiManager/FGFM",
+    3389: "RDP", 5443: "HTTPS alt", 8080: "HTTP alt", 8443: "HTTPS alt / admin",
+    10443: "HTTPS alt / SSL-VPN", 11443: "HTTPS alt", 12443: "HTTPS alt",
+    15443: "HTTPS alt",
+}
+PORT_TIMEOUT = 2.0      # connect() timeout, seconds
+BANNER_TIMEOUT = 1.2    # wait for a server-first banner (SSH, Telnet, FTP)
+MAX_PORTS = 1024        # hard cap on ports per target
 RIPESTAT = "https://stat.ripe.net/data"
 
 # ---------------------------------------------------------------------------
@@ -152,14 +185,45 @@ _COLOR_MAP = {
 }
 
 
+NO_COLOR = bool(os.environ.get("NO_COLOR"))   # https://no-color.org
+
+# Gradient stops for section headers: light orchid -> brand -> fade.
+GRAD_LIGHT = (224, 150, 226)
+GRAD_BRAND = tuple(int(x) for x in BRAND.split(";"))
+GRAD_FADE = (72, 58, 82)
+
+
 def c(text, code):
+    if NO_COLOR:
+        return str(text)
     code = _COLOR_MAP.get(code, code)
     return f"\033[{code}m{text}\033[0m"
 
 
+def _ease(t):
+    return t * t * (3 - 2 * t)          # smoothstep: soft start and end
+
+
+def gradient(text, start, end, bold=False):
+    """Per-character truecolor blend from start to end (RGB tuples)."""
+    if NO_COLOR or not text:
+        return text
+    n = max(1, len(text) - 1)
+    weight = "1;" if bold else ""
+    out = []
+    for i, ch in enumerate(text):
+        t = _ease(i / n)
+        r, g, b = (round(a + (z - a) * t) for a, z in zip(start, end))
+        out.append(f"\033[{weight}38;2;{r};{g};{b}m{ch}")
+    return "".join(out) + "\033[0m"
+
+
 def section(text):
+    """╭─ TITLE ─────────  title glows light->brand, rule fades brand->dark."""
     bar = "─" * max(0, W - len(text) - 4)
-    print("\n" + c(f"╭─ {text} {bar}", "1;36"))
+    print("\n" + gradient("╭─ ", GRAD_BRAND, GRAD_LIGHT, bold=True)
+          + gradient(text, GRAD_LIGHT, GRAD_BRAND, bold=True)
+          + gradient(f" {bar}", GRAD_BRAND, GRAD_FADE))
 
 
 def row(label, value, alert=False, note=None, indent=2, dim=False):
@@ -173,7 +237,7 @@ def row(label, value, alert=False, note=None, indent=2, dim=False):
         style = "0;90"
     else:
         style = "0"
-    line = f"{' ' * indent}{c(label, '0;37'):<{width + 9}} {c(str(value), style)}"
+    line = f"{' ' * indent}{c(f'{label:<{width}}', '0;37')} {c(str(value), style)}"
     if note:
         line += c(f"   {note}", "0;90")
     print(line)
@@ -396,6 +460,397 @@ def query_tor(ip):
 
 
 # ---------------------------------------------------------------------------
+# TCP exposure probe
+# ---------------------------------------------------------------------------
+
+
+def _printable(data, limit=70):
+    """Bytes -> first readable line, control/IAC bytes stripped."""
+    text = data.decode("latin-1", errors="replace")
+    text = "".join(ch if 32 <= ord(ch) < 127 else " " for ch in text)
+    line = next((l.strip() for l in re.split(r" {2,}", text) if l.strip()), "")
+    return (line[:limit - 1] + "…") if len(line) > limit else line or None
+
+
+def _recv_head(sock, limit=4096):
+    buf = b""
+    try:
+        while b"\r\n\r\n" not in buf and len(buf) < limit:
+            chunk = sock.recv(1024)
+            if not chunk:
+                break
+            buf += chunk
+    except (socket.timeout, OSError):
+        pass
+    return buf
+
+
+def _parse_http(raw):
+    if not raw.startswith(b"HTTP/"):
+        return {}
+    lines = raw.split(b"\r\n")
+    out = {"http": lines[0].decode("latin-1", errors="replace").strip()}
+    for ln in lines[1:]:
+        if ln.lower().startswith(b"server:"):
+            out["server"] = ln[7:].decode("latin-1", errors="replace").strip()[:60]
+    return out
+
+
+def _tls_context():
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:  # accept legacy appliances (TLS 1.0/1.1, weak ciphers)
+        ctx.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+        ctx.set_ciphers("DEFAULT:@SECLEVEL=0")
+    except (ValueError, ssl.SSLError, AttributeError):
+        pass
+    return ctx
+
+
+def _app_probe(ip, port):
+    """Silent service: try TLS first, then plain HTTP. HEAD / only."""
+    host = f"[{ip}]" if ":" in ip else ip
+    req = (f"HEAD / HTTP/1.0\r\nHost: {host}\r\n"
+           f"User-Agent: ip-investigate/{VERSION}\r\n\r\n").encode()
+    info = {}
+    try:
+        with socket.create_connection((ip, port), timeout=PORT_TIMEOUT) as raw:
+            with _tls_context().wrap_socket(raw) as tls:
+                cipher = tls.cipher()
+                info["tls"] = f"{tls.version()} {cipher[0]}" if cipher else tls.version()
+                tls.settimeout(BANNER_TIMEOUT)
+                try:
+                    tls.sendall(req)
+                    info.update(_parse_http(_recv_head(tls)))
+                except OSError:
+                    pass
+                return info
+    except OSError:
+        pass
+    try:
+        with socket.create_connection((ip, port), timeout=PORT_TIMEOUT) as s:
+            s.settimeout(BANNER_TIMEOUT)
+            s.sendall(req)
+            info.update(_parse_http(_recv_head(s)))
+    except OSError:
+        pass
+    return info
+
+
+def probe_port(ip, port):
+    """TCP connect() probe. open = handshake completed, closed = RST,
+    filtered = no answer in PORT_TIMEOUT (dropped / firewalled)."""
+    base = {"port": port, "service": PORT_LABELS.get(port, "unknown")}
+    t0 = time.time()
+    try:
+        s = socket.create_connection((ip, port), timeout=PORT_TIMEOUT)
+    except ConnectionRefusedError:
+        return {**base, "state": "closed", "rtt_ms": int((time.time() - t0) * 1000),
+                "detail": "RST received"}
+    except socket.timeout:
+        return {**base, "state": "filtered", "detail": f"no reply in {PORT_TIMEOUT:g}s"}
+    except OSError as e:
+        return {**base, "state": "filtered", "detail": e.strerror or str(e)}
+
+    out = {**base, "state": "open", "rtt_ms": int((time.time() - t0) * 1000),
+           "banner": None, "tls": None, "http": None, "server": None}
+    try:
+        s.settimeout(BANNER_TIMEOUT)
+        data = s.recv(256)
+        if data:
+            out["banner"] = _printable(data)
+    except OSError:
+        pass
+    finally:
+        s.close()
+
+    if not out["banner"]:
+        out.update(_app_probe(ip, port))
+    return out
+
+
+def scan_ports(ip, ports):
+    start = time.time()
+    results = []
+    with ThreadPoolExecutor(max_workers=min(64, len(ports))) as ex:
+        for r in ex.map(lambda p: probe_port(ip, p), ports):
+            results.append(r)
+    return {"results": sorted(results, key=lambda r: r["port"]),
+            "timeout_s": PORT_TIMEOUT, "_ms": int((time.time() - start) * 1000)}
+
+
+def parse_ports(raw):
+    """'8080, 9443 / 4433 8000-8010' -> ([ports], [invalid tokens])."""
+    ports, bad = [], []
+    for tok in re.split(r"[,\s/;]+", (raw or "").strip()):
+        if not tok:
+            continue
+        m = re.fullmatch(r"(\d{1,5})(?:-(\d{1,5}))?", tok)
+        if not m:
+            bad.append(tok)
+            continue
+        a, b_ = int(m[1]), int(m[2] or m[1])
+        a, b_ = min(a, b_), max(a, b_)
+        if a < 1 or b_ > 65535 or (b_ - a) >= MAX_PORTS:
+            bad.append(tok)
+            continue
+        ports.extend(range(a, b_ + 1))
+    return ports, bad
+
+
+def build_port_list(extra):
+    return sorted(set(DEFAULT_PORTS) | set(extra))[:MAX_PORTS]
+
+
+
+# ---------------------------------------------------------------------------
+# MAC address
+# ---------------------------------------------------------------------------
+
+MAC_RE = re.compile(
+    r"^(?:[0-9a-f]{2}([:-])(?:[0-9a-f]{2}\1){4}[0-9a-f]{2}"   # 00:0c:29:.. / 00-0c-29-..
+    r"|[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}"                 # 000c.29ab.cdef (Cisco)
+    r"|[0-9a-f]{12})$", re.I)                                  # 000c29abcdef
+
+# Well-known OUIs / reserved ranges worth flagging (prefix -> note).
+MAC_KNOWN = {
+    "000569": "VMware (virtual NIC)", "000c29": "VMware (virtual NIC)",
+    "001c14": "VMware (virtual NIC)", "005056": "VMware (virtual NIC)",
+    "080027": "Oracle VirtualBox (virtual NIC)", "00155d": "Microsoft Hyper-V (virtual NIC)",
+    "525400": "QEMU/KVM (virtual NIC, locally administered)", "00163e": "Xen (virtual NIC)",
+    "01005e": "IPv4 multicast (RFC 1112)", "333300": "IPv6 multicast (RFC 2464)",
+    "0180c2": "IEEE 802.1 reserved (STP, LLDP, LACP, 802.1X)",
+    "00005e": "IANA (VRRP / HSRP-style virtual router)",
+}
+
+MAC_BLOCK = {"MA-L": "/24, 16 777 216 addresses", "MA-M": "/28, 1 048 576 addresses",
+             "MA-S": "/36, 4 096 addresses", "IAB": "/36, 4 096 addresses (legacy IAB)",
+             "CID": "company ID, no globally unique MACs"}
+
+_mv_lock = threading.Lock()
+_mv_last = [0.0]
+
+
+def normalize_mac(s):
+    s = (s or "").strip()
+    return re.sub(r"[^0-9a-f]", "", s.lower()) if MAC_RE.match(s) else None
+
+
+def valid_mac(s):
+    return normalize_mac(s) is not None
+
+
+def mac_properties(h):
+    b = [int(h[i:i + 2], 16) for i in range(0, 12, 2)]
+    colon = ":".join(h[i:i + 2] for i in range(0, 12, 2)).upper()
+    p = {
+        "canonical": colon,
+        "hyphen": colon.replace(":", "-"),
+        "cisco": f"{h[0:4]}.{h[4:8]}.{h[8:12]}",
+        "bare": h.upper(),
+        "oui": colon[:8],
+        "nic": colon[9:],
+        "multicast": bool(b[0] & 0x01),
+        "local": bool(b[0] & 0x02),
+        "broadcast": h == "ff" * 6,
+        "zero": h == "0" * 12,
+        "known": next((v for k, v in MAC_KNOWN.items() if h.startswith(k)),
+                      MAC_KNOWN["333300"] if h.startswith("3333") else None),
+    }
+    # Modified EUI-64 (RFC 4291): flip U/L bit, insert ff:fe in the middle.
+    e = [b[0] ^ 0x02] + b[1:3] + [0xFF, 0xFE] + b[3:]
+    iid = int.from_bytes(bytes(e), "big")
+    p["eui64_ll"] = str(ipaddress.IPv6Address((0xFE80 << 112) | iid))
+    return p
+
+
+def get_text(url, timeout=TIMEOUT, retries=RETRIES):
+    """Returns (status, body, error, elapsed_ms). 4xx is an answer, not an error."""
+    start, last_err = time.time(), None
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": f"ip-investigate/{VERSION}"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.status, r.read().decode("utf-8", "replace"), None, int((time.time() - start) * 1000)
+        except urllib.error.HTTPError as e:
+            if e.code < 500:
+                body = e.read().decode("utf-8", "replace")
+                return e.code, body, None, int((time.time() - start) * 1000)
+            last_err = f"HTTP {e.code} {e.reason}"
+        except urllib.error.URLError as e:
+            last_err = f"Network: {e.reason}"
+        except Exception as e:
+            last_err = str(e)
+        if attempt < retries:
+            time.sleep(0.4 * (attempt + 1))
+    return None, None, last_err, int((time.time() - start) * 1000)
+
+
+def src_macvendors(mac):
+    """api.macvendors.com: plain-text vendor. Free tier 1 req/s, 1000/day."""
+    with _mv_lock:
+        wait = 1.1 - (time.time() - _mv_last[0])
+        if wait > 0:
+            time.sleep(wait)
+        status, body, err, ms = get_text(f"https://api.macvendors.com/{mac}")
+        _mv_last[0] = time.time()
+    if err:
+        return {"error": err, "_ms": ms}
+    if status == 200:
+        return {"found": True, "vendor": body.strip(), "_ms": ms}
+    if status == 404:
+        return {"found": False, "_ms": ms}
+    if status == 429:
+        return {"error": "HTTP 429 rate limited (1 req/s, 1000/day)", "_ms": ms}
+    return {"error": f"HTTP {status}", "_ms": ms}
+
+
+def src_maclookup(mac):
+    """api.maclookup.app v2: JSON with block type, range and registrant."""
+    d, e, ms = get_json(f"https://api.maclookup.app/v2/macs/{mac}")
+    if e:
+        return {"error": e, "_ms": ms}
+    if d.get("success") is False:
+        return {"error": d.get("error") or d.get("message") or "lookup failed", "_ms": ms}
+    return {**d, "_ms": ms}
+
+
+def vendor_key(v):
+    v = re.sub(r"[^a-z0-9 ]", " ", norm(v))
+    drop = {"inc", "ltd", "co", "corp", "corporation", "llc", "gmbh", "limited", "company", "sa", "ag"}
+    return " ".join(w for w in v.split() if w not in drop)
+
+
+def collect_mac(h):
+    p = mac_properties(h)
+    b = {"properties": p}
+    skip = None
+    if p["broadcast"]:
+        skip = "broadcast address"
+    elif p["zero"]:
+        skip = "all-zero address"
+    elif p["local"] and not p["multicast"]:
+        skip = "locally administered: not assigned by the IEEE registry"
+    if skip:
+        b["macvendors"] = b["maclookup"] = {"skipped": skip}
+        return b
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        f1, f2 = ex.submit(src_macvendors, p["canonical"]), ex.submit(src_maclookup, p["canonical"])
+        b["macvendors"], b["maclookup"] = f1.result(), f2.result()
+    return b
+
+
+def merge_mac(raw_input, b):
+    p, mv, ml = b["properties"], b["macvendors"], b["maclookup"]
+    mvo = mv if "error" not in mv and "skipped" not in mv else {}
+    mlo = ml if "error" not in ml and "skipped" not in ml else {}
+
+    cands = []
+    if mvo.get("vendor"):
+        cands.append((mvo["vendor"], "macvendors.com"))
+    if mlo.get("found") and mlo.get("company"):
+        cands.append((mlo["company"], "maclookup.app"))
+    if cands:
+        keys = Counter(vendor_key(v) for v, _ in cands)
+        win = keys.most_common(1)[0][0]
+        vendor = (next(v for v, _ in cands if vendor_key(v) == win),
+                  [s for v, s in cands if vendor_key(v) == win],
+                  [(v, s) for v, s in cands if vendor_key(v) != win])
+    else:
+        vendor = (None, [], [])
+
+    queried = [x for x in (mv, ml) if "skipped" not in x]
+    not_found = bool(queried) and not cands and all("error" not in x for x in queried)
+
+    def fmt_hex(x):
+        x = (x or "").lower()
+        return ":".join(x[i:i + 2] for i in range(0, 12, 2)).upper() if len(x) == 12 else x or None
+
+    return {
+        "input": raw_input, "mac": p["canonical"], "properties": p,
+        "vendor": vendor, "not_found": not_found,
+        "skipped": mv.get("skipped"),
+        "block_type": mlo.get("blockType"),
+        "block_start": fmt_hex(mlo.get("blockStart")), "block_end": fmt_hex(mlo.get("blockEnd")),
+        "block_prefix": mlo.get("macPrefix"),
+        "reg_country": mlo.get("country"), "reg_address": mlo.get("address"),
+        "reg_updated": mlo.get("updated"),
+        "is_private": mlo.get("isPrivate"), "is_rand": mlo.get("isRand"),
+        "timings": {n: x.get("_ms") for n, x in (("macvendors.com", mv), ("maclookup.app", ml))
+                    if x.get("_ms") and "error" not in x},
+        "errors": {n: x["error"] for n, x in (("macvendors.com", mv), ("maclookup.app", ml))
+                   if x.get("error")},
+    }
+
+
+def report_mac(m):
+    p = m["properties"]
+    section("MAC ADDRESS")
+    row("MAC", p["canonical"])
+    if norm(m["input"]) != norm(p["canonical"]):
+        row("As entered", m["input"], dim=True)
+    row("Hyphen", p["hyphen"])
+    row("Cisco dotted", p["cisco"])
+    row("Bare hex", p["bare"])
+    row("OUI (vendor part)", p["oui"])
+    row("NIC-specific part", p["nic"])
+    row("Cast (I/G bit)", "multicast / group" if p["multicast"] else "unicast",
+        note="bit 0 of first octet = " + ("1" if p["multicast"] else "0"))
+    if p["local"]:
+        row("Admin (U/L bit)", "LOCALLY ADMINISTERED", alert=True,
+            note="randomized, virtual or manually set; spoofable")
+    else:
+        row("Admin (U/L bit)", "universal (IEEE-assigned)", note="bit 1 of first octet = 0")
+    if p["broadcast"]:
+        row("Special", "BROADCAST", alert=True)
+    if p["zero"]:
+        row("Special", "ALL-ZERO (invalid / placeholder)", alert=True)
+    if p["known"]:
+        row("Known range", p["known"])
+    if not p["multicast"]:
+        row("EUI-64 link-local", p["eui64_ll"], note="SLAAC IPv6 derived from this MAC")
+
+    section("VENDOR (IEEE OUI REGISTRY)")
+    if m["skipped"]:
+        row("Lookup", "not applicable", dim=True, note=m["skipped"])
+    else:
+        v, agree, differ = m["vendor"]
+        if v:
+            row_consensus("Vendor", m["vendor"])
+        elif m["not_found"]:
+            row("Vendor", "NOT FOUND in registry", alert=True,
+                note="unassigned OUI, private block or forged address")
+        else:
+            row("Vendor", None)
+        if m["block_type"]:
+            row("Block type", m["block_type"], note=MAC_BLOCK.get(m["block_type"], ""))
+        if m["block_start"] and m["block_end"]:
+            row("Block range", f"{m['block_start']} – {m['block_end']}")
+        row("Registrant country", m["reg_country"])
+        if m["reg_address"]:
+            row("Registrant address", m["reg_address"])
+        row("Registry updated", m["reg_updated"])
+        if m["is_private"]:
+            row("Private registration", "YES", alert=True, note="vendor hid its identity at the IEEE")
+
+    section("COLLECTION DIAGNOSTICS")
+    if m["timings"]:
+        row("Sources queried", f"{len(m['timings'])} responded")
+        for name, ms in sorted(m["timings"].items(), key=lambda x: -x[1]):
+            bullet(f"{name:<20} {ms:>5} ms", "0;90")
+    if m["errors"]:
+        row("Sources unavailable", str(len(m["errors"])), alert=True)
+        for name, err in m["errors"].items():
+            bullet(f"{name:<20} {err}", "0;90")
+    elif m["skipped"]:
+        row("Sources queried", "none", dim=True, note="registry lookup not applicable")
+    else:
+        row("Sources unavailable", "none")
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Merge
 # ---------------------------------------------------------------------------
 
@@ -593,8 +1048,10 @@ def merge(ip, b):
         "is_crawler": flag([(ipapi.get("is_crawler"), "ipapi.is")]),
         "is_satellite": flag([(ipapi.get("is_satellite"), "ipapi.is")]),
         "is_bogon": flag([(ipapi.get("is_bogon"), "ipapi.is")]),
-        "timings": {n: b[k].get("_ms") for n, k in sources
-                    if isinstance(b[k], dict) and b[k].get("_ms") and not b[k].get("error")},
+        "ports": b.get("ports") or {},
+        "timings": {**{n: b[k].get("_ms") for n, k in sources
+                       if isinstance(b[k], dict) and b[k].get("_ms") and not b[k].get("error")},
+                    **({"TCP probe": b["ports"]["_ms"]} if (b.get("ports") or {}).get("_ms") else {})},
         "errors": {n: b[k].get("error") for n, k in sources if isinstance(b[k], dict) and b[k].get("error")},
     }
 
@@ -615,6 +1072,40 @@ def row_consensus(label, resolved, indent=2):
         elif agree:
             note = agree[0]
     row(label, value, alert=bool(differ), note=note, indent=indent)
+
+
+STATE_ICON = {"open": "✓ open", "closed": "✗ closed", "filtered": "- filtered"}
+
+
+def report_ports(pr):
+    section("TCP EXPOSURE")
+    results = pr.get("results") or []
+    if not results:
+        row("Probe", "not run", dim=True, note="opt-in: answer yes at the prompt, or --scan / -p")
+        return
+
+    n = Counter(r["state"] for r in results)
+    row("Summary", f"{n['open']} open · {n['closed']} closed · {n['filtered']} filtered",
+        note=f"{len(results)} ports, connect() timeout {pr.get('timeout_s', PORT_TIMEOUT):g}s")
+    print()
+    print(c(f"    {'PORT':<11}{'STATE':<13}{'RTT':>7}   {'SERVICE':<22}DETAIL", "0;90"))
+    for r in results:
+        st = r["state"]
+        style = "1;37" if st == "open" else "0;90"
+        rtt = f"{r['rtt_ms']} ms" if r.get("rtt_ms") is not None else "—"
+        if st == "open":
+            parts = [r.get("banner"), r.get("tls"), r.get("http"),
+                     f"Server: {r['server']}" if r.get("server") else None]
+            detail = " · ".join(x for x in parts if x) or "handshake ok, no banner"
+        else:
+            detail = r.get("detail") or ""
+        port_s = f"{r['port']}/tcp"
+        print("    " + c(f"{port_s:<11}", style) + c(f"{STATE_ICON[st]:<13}", style)
+              + c(f"{rtt:>7}", "0;90") + "   " + c(f"{r['service']:<22}", "0;37")
+              + c(detail, "0" if st == "open" else "0;90"))
+    print()
+    bullet("Active probe: SYN/HEAD sent from this host. The target can log your", "0;33")
+    bullet("source IP. Skip the probe to stay fully passive.", "0;33")
 
 
 def report(m):
@@ -746,6 +1237,8 @@ def report(m):
     row("Datacenter name", m["datacenter"]) if m["datacenter"] else None
     row("Organisation type", m["org_type"]) if m["org_type"] else None
 
+    report_ports(m["ports"])
+
     section("DNS BLOCKLISTS")
     listed = [z for z, d in m["dnsbl"].items() if d["state"] == "listed"]
     errored = [z for z, d in m["dnsbl"].items() if d["state"] == "error"]
@@ -799,7 +1292,8 @@ def raw_dump(b):
                       ("RDAP", "rdap"), ("RIPEstat network-info", "ripe_network"),
                       ("RIPEstat abuse-contact", "ripe_abuse"), ("RIPEstat routing-status", "ripe_routing"),
                       ("RIPEstat as-overview", "ripe_as"), ("RIPEstat rpki-validation", "ripe_rpki"),
-                      ("DNS", "dns"), ("DNSBL", "dnsbl"), ("Tor", "tor")):
+                      ("DNS", "dns"), ("DNSBL", "dnsbl"), ("Tor", "tor"),
+                      ("TCP exposure", "ports")):
         print(c(f"\n   {name}", "1;36"))
         text = json.dumps(b.get(key), indent=2, ensure_ascii=False, default=str)
         print("   " + text.replace("\n", "\n   "))
@@ -818,6 +1312,198 @@ VERDICT_BANNER = r"""
     \  /   | |____| | \ \ | |__| |_| || |____   | |
      \/    |______|_|  \_\|_____/|_____\_____|  |_|
 """
+
+ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+
+
+def vlen(s):
+    """Visible length (ANSI codes stripped)."""
+    return len(ANSI_RE.sub("", s))
+
+
+def card(lines):
+    """Rounded brand box; each line may carry its own colors."""
+    print(c("╭" + "─" * W + "╮", "1;35"))
+    for ln in lines:
+        pad = max(0, W - 2 - vlen(ln))
+        print(c("│", "1;35") + " " + ln + " " * pad + " " + c("│", "1;35"))
+    print(c("╰" + "─" * W + "╯", "1;35"))
+
+
+def welcome():
+    print(c(VERDICT_BANNER, "1;35"))
+    title = c("IP & MAC intelligence · exposure triage", "1;37")
+    ver = c(f"v{VERSION}", "0;90")
+    gap = W - 2 - vlen(title) - vlen(ver)
+    card([
+        title + " " * gap + ver,
+        c("geo · ASN · RDAP · BGP/RPKI · PTR/FCrDNS · DNSBL · Tor · TCP", "0;90"),
+        c("MAC: OUI vendor · block type · U/L + I/G bits · EUI-64", "0;90"),
+        c("data only, no verdict  ·  Ctrl+C to abort", "0;90"),
+    ])
+
+
+# ---------------------------------------------------------------------------
+# Interactive prompt
+# ---------------------------------------------------------------------------
+
+PROMPT = "  ➤ "
+
+
+def step_header(step, title, note=""):
+    """  [1/2] Title ──────────  soft gradient rule after the step title."""
+    head = f"  [{step}] {title}"
+    fill = max(3, W - len(head) - len(note) - 2)
+    line = (gradient(f"  [{step}]", GRAD_BRAND, GRAD_LIGHT, bold=True) + " "
+            + gradient(title, GRAD_LIGHT, GRAD_BRAND, bold=True) + " "
+            + gradient("─" * fill, GRAD_BRAND, GRAD_FADE))
+    if note:
+        line += " " + c(note, "0;90")
+    print("\n" + line)
+
+
+def ask(step, title, hint_lines, optional=False):
+    step_header(step, title, "optional · Enter to skip" if optional else "")
+    for key, val in hint_lines:
+        print(f"      {c(f'{key:<9}', '0;37')}{c(val, '0;90')}")
+    return input(c(PROMPT, "1;36")).strip()
+
+
+def ask_targets():
+    while True:
+        raw = ask("1/2", "Target", [
+            ("format", "IPv4, IPv6 or MAC, separated by  ,  or  /  (auto-detected)"),
+            ("example", "203.0.113.7, 00:0c:29:ab:cd:ef / 000c.29ab.cdef"),
+        ])
+        if not raw:
+            return []
+        good, bad = split_targets(raw)
+        for x in bad:
+            print(c(f"      ✗ not a valid IP or MAC, skipped: '{x}'", "1;31"))
+        if good:
+            n_ip = sum(1 for t in good if t[0] == "ip")
+            n_mac = len(good) - n_ip
+            print("      " + c(f"✓ detected: {n_ip} IP · {n_mac} MAC", "0;90"))
+            return good
+        print(c("      ! no valid IP or MAC, try again (Enter to quit)", "0;33"))
+
+
+YES = {"y", "yes", "s", "sim"}
+
+
+def ask_ports(step="2/2"):
+    """Returns None (no probe) or the list of extra ports (may be empty)."""
+    step_header(step, "TCP probe", "active · leaves this host")
+    print("      " + c(f"{'default':<9}", "0;37") + c(" ".join(map(str, DEFAULT_PORTS)), "0;90"))
+    ans = input(c(PROMPT, "1;36") + c("Scan open ports? ", "1;37")
+                + c("[y/N] ", "0;90")).strip().lower()
+    if ans not in YES:
+        print("      " + c("- skipped, passive lookup only", "0;90"))
+        return None
+
+    print("      " + c(f"{'format':<9}", "0;37")
+          + c("extra ports, separated by  ,  space  or  /  ·  ranges 8000-8010", "0;90"))
+    while True:
+        raw = input(c(PROMPT, "1;36") + c("Extra ports ", "1;37")
+                    + c("(Enter = defaults only) ", "0;90")).strip()
+        extra, bad = parse_ports(raw)
+        for x in bad:
+            print(c(f"      ✗ invalid port, skipped: '{x}'", "1;31"))
+        if not bad or extra or not raw:
+            return extra
+        print(c("      ! nothing usable, try again (Enter = defaults only)", "0;33"))
+
+
+def split_targets(raw):
+    """-> ([("ip", value) | ("mac", raw, hex12)], [invalid]). Order kept,
+    MACs de-duplicated across notations."""
+    good, bad, seen_mac = [], [], set()
+    for cand in parse_ip_list(raw):
+        if valid_ip(cand):
+            good.append(("ip", cand))
+        elif valid_mac(cand):
+            h = normalize_mac(cand)
+            if h not in seen_mac:
+                seen_mac.add(h)
+                good.append(("mac", cand, h))
+        else:
+            bad.append(cand)
+    return good, bad
+
+
+def parse_ip_list(raw):
+    """Splits on ',' and/or '/', trims, drops empties and duplicates."""
+    seen, out = set(), []
+    for piece in re.split(r"[,/]", raw):
+        cand = piece.strip()
+        if cand and cand not in seen:
+            seen.add(cand)
+            out.append(cand)
+    return out
+
+
+def plan_summary(targets, ports):
+    n_ip = sum(1 for t in targets if t[0] == "ip")
+    n_mac = len(targets) - n_ip
+    parts = []
+    if n_ip:
+        parts.append(f"{n_ip} IP{'s' if n_ip > 1 else ''}")
+        parts.append(f"{len(ports)} TCP ports" if ports else "TCP probe off")
+    if n_mac:
+        parts.append(f"{n_mac} MAC{'s' if n_mac > 1 else ''}")
+    print("\n  " + c("✓", "1;37") + " " + c(" · ".join(parts + ["starting"]), "0;37"))
+    if ports and set(ports) != set(DEFAULT_PORTS):
+        added = [p for p in ports if p not in DEFAULT_PORTS]
+        shown = " ".join(map(str, added[:20])) + (" …" if len(added) > 20 else "")
+        print("    " + c(f"+ {shown}", "0;90"))
+
+
+# ---------------------------------------------------------------------------
+# Collection
+# ---------------------------------------------------------------------------
+
+QUICK_KEYS = ("ipapi_is", "ip_api_com", "ipwho_is", "dns")
+
+
+def collect(ip, ports, on_quick=None):
+    """Runs every source in parallel. on_quick(b) fires once the fast
+    sources (geo + PTR) have landed."""
+    b = {"properties": address_properties(ip)}
+    with ThreadPoolExecutor(max_workers=11) as ex:
+        futs = {
+            "ipapi_is": ex.submit(src_ipapi_is, ip),
+            "ip_api_com": ex.submit(src_ip_api_com, ip),
+            "ipwho_is": ex.submit(src_ipwho_is, ip),
+            "rdap": ex.submit(src_rdap, ip),
+            "ripe_network": ex.submit(src_ripe_network, ip),
+            "ripe_abuse": ex.submit(src_ripe_abuse, ip),
+            "ripe_routing": ex.submit(src_ripe_routing, ip),
+            "dns": ex.submit(src_reverse_dns, ip),
+            "dnsbl": ex.submit(query_all_dnsbl, ip),
+            "tor": ex.submit(query_tor, ip),
+        }
+        if ports:
+            futs["ports"] = ex.submit(scan_ports, ip, ports)
+
+        for k in QUICK_KEYS:
+            b[k] = futs[k].result()
+        if on_quick:
+            on_quick(b)
+        for k, f in futs.items():
+            if k not in QUICK_KEYS:
+                b[k] = f.result()
+
+    b.setdefault("ports", {"results": [], "skipped": True})
+
+    rnet = ok(b["ripe_network"])
+    asns = rnet.get("asns") or []
+    asn = str(asns[0]) if asns else (str(sub(ok(b["ipapi_is"]), "asn").get("asn") or "") or None)
+    prefix = rnet.get("prefix") or sub(ok(b["ipapi_is"]), "asn").get("route")
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        fa, fr = ex.submit(src_ripe_as, asn), ex.submit(src_ripe_rpki, asn, prefix)
+        b["ripe_as"], b["ripe_rpki"] = fa.result(), fr.result()
+    return b
+
 
 # ---------------------------------------------------------------------------
 # Loading bar animation
@@ -866,19 +1552,9 @@ class LoadingBar:
         sys.stdout.flush()
 
 
-def investigate(ip, raw=False, as_json=False):
-    if not as_json:
-        print(c(VERDICT_BANNER, "1;35"))
-        print(c("╔" + "═" * W + "╗", "1;35"))
-        print(c(f"║{'IP INTELLIGENCE REPORT':^{W}}║", "1;35"))
-        print(c(f"║{ip:^{W}}║", "1;37"))
-        print(c(f"║{time.strftime('%Y-%m-%d %H:%M:%S'):^{W}}║", "0;90"))
-        print(c("╚" + "═" * W + "╝", "1;35"))
-        print()
-
 def quick_summary(ip, b):
-    """Prints an at-a-glance summary from the fastest sources (geolocation
-    + reverse DNS) as soon as they land, before the full dossier is ready."""
+    """At-a-glance summary from the fastest sources, shown before the
+    full dossier is ready."""
     ipapi, ipcom, ipwho = ok(b.get("ipapi_is", {})), ok(b.get("ip_api_com", {})), ok(b.get("ipwho_is", {}))
     dns = b.get("dns") or {}
 
@@ -897,66 +1573,38 @@ def quick_summary(ip, b):
     row("City, region", city)
     row("ISP / org", isp)
     row("PTR record", dns.get("ptr") or dns.get("error"), dim=not dns.get("ptr"))
-    print(c("\n  Continuing full lookup in the background...", "0;90"))
+    print(c("\n  Registry, BGP, blocklists and TCP probe still running...", "0;90"))
 
 
-def investigate(ip, raw=False, as_json=False):
-    if not as_json:
-        print(c(VERDICT_BANNER, "1;35"))
-        print(c("╔" + "═" * W + "╗", "1;35"))
-        print(c(f"║{'IP INTELLIGENCE REPORT':^{W}}║", "1;35"))
-        print(c(f"║{ip:^{W}}║", "1;37"))
-        print(c(f"║{time.strftime('%Y-%m-%d %H:%M:%S'):^{W}}║", "0;90"))
-        print(c("╚" + "═" * W + "╝", "1;35"))
-        print()
+def report_header(ip, idx, total, title="IP INTELLIGENCE REPORT"):
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    left = c(title, "1;35")
+    right = c(f"target {idx}/{total}", "0;90") if total > 1 else ""
+    print()
+    card([
+        left + " " * (W - 2 - vlen(left) - vlen(right)) + right,
+        c(ip, "1;37") + " " * (W - 2 - len(ip) - len(stamp)) + c(stamp, "0;90"),
+    ])
 
+
+def investigate(ip, ports, raw=False, as_json=False, idx=1, total=1):
     bar = None
     if not as_json:
-        bar = LoadingBar("Investigating")
+        report_header(ip, idx, total)
+        bar = LoadingBar("Querying sources")
+        bar.start()
+
+    def on_quick(b):
+        nonlocal bar
+        if as_json:
+            return
+        bar.stop()
+        quick_summary(ip, b)
+        bar = LoadingBar("Compiling full dossier")
         bar.start()
 
     try:
-        b = {"properties": address_properties(ip)}
-
-        with ThreadPoolExecutor(max_workers=10) as ex:
-            futs = {
-                "ipapi_is": ex.submit(src_ipapi_is, ip),
-                "ip_api_com": ex.submit(src_ip_api_com, ip),
-                "ipwho_is": ex.submit(src_ipwho_is, ip),
-                "rdap": ex.submit(src_rdap, ip),
-                "ripe_network": ex.submit(src_ripe_network, ip),
-                "ripe_abuse": ex.submit(src_ripe_abuse, ip),
-                "ripe_routing": ex.submit(src_ripe_routing, ip),
-                "dns": ex.submit(src_reverse_dns, ip),
-                "dnsbl": ex.submit(query_all_dnsbl, ip),
-                "tor": ex.submit(query_tor, ip),
-            }
-
-            # Geolocation + reverse DNS are the fastest sources. As soon as
-            # all four land, show a quick summary while the rest (RDAP,
-            # RIPEstat, DNSBL, Tor) keeps running in the background.
-            quick_keys = ("ipapi_is", "ip_api_com", "ipwho_is", "dns")
-            for k in quick_keys:
-                b[k] = futs[k].result()
-
-            if not as_json:
-                bar.stop()
-                quick_summary(ip, b)
-                bar = LoadingBar("Compiling full dossier")
-                bar.start()
-
-            for k, f in futs.items():
-                if k not in quick_keys:
-                    b[k] = f.result()
-
-        rnet = ok(b["ripe_network"])
-        asns = rnet.get("asns") or []
-        asn = str(asns[0]) if asns else (str(sub(ok(b["ipapi_is"]), "asn").get("asn") or "") or None)
-        prefix = rnet.get("prefix") or sub(ok(b["ipapi_is"]), "asn").get("route")
-
-        with ThreadPoolExecutor(max_workers=2) as ex:
-            fa, fr = ex.submit(src_ripe_as, asn), ex.submit(src_ripe_rpki, asn, prefix)
-            b["ripe_as"], b["ripe_rpki"] = fa.result(), fr.result()
+        b = collect(ip, ports, on_quick)
     finally:
         if bar:
             bar.stop()
@@ -967,12 +1615,10 @@ def investigate(ip, raw=False, as_json=False):
         print(json.dumps(merged, indent=2, ensure_ascii=False, default=str))
         return
 
-    # Capture the report to stdout AND to a buffer, so it can be saved
-    # to a .txt file when the window closes.
+    # Mirror the report to a buffer so it can be saved as .txt.
     buf = io.StringIO()
-    tee = _Tee(sys.stdout, buf)
     old_stdout = sys.stdout
-    sys.stdout = tee
+    sys.stdout = _Tee(sys.stdout, buf)
     try:
         report(merged)
         if raw:
@@ -981,6 +1627,39 @@ def investigate(ip, raw=False, as_json=False):
         sys.stdout = old_stdout
 
     save_report_txt(ip, buf.getvalue())
+
+
+def investigate_mac(raw_input, h, raw=False, as_json=False, idx=1, total=1):
+    title = "MAC ADDRESS REPORT"
+    canonical = mac_properties(h)["canonical"]
+    bar = None
+    if not as_json:
+        report_header(canonical, idx, total, title=title)
+        bar = LoadingBar("Querying OUI registries")
+        bar.start()
+    try:
+        b = collect_mac(h)
+    finally:
+        if bar:
+            bar.stop()
+    merged = merge_mac(raw_input, b)
+    if as_json:
+        print(json.dumps(merged, indent=2, ensure_ascii=False, default=str))
+        return
+    buf = io.StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = _Tee(sys.stdout, buf)
+    try:
+        report_mac(merged)
+        if raw:
+            section("RAW RESPONSES")
+            for name, key in (("macvendors.com", "macvendors"), ("maclookup.app", "maclookup")):
+                print(c(f"\n   {name}", "1;36"))
+                print("   " + json.dumps(b.get(key), indent=2, ensure_ascii=False,
+                                         default=str).replace("\n", "\n   "))
+    finally:
+        sys.stdout = old_stdout
+    save_report_txt(canonical, buf.getvalue(), title=title)
 
 
 class _Tee:
@@ -997,13 +1676,10 @@ class _Tee:
             s.flush()
 
 
-ANSI_RE = re.compile(r"\033\[[0-9;]*m")
-
-
-def save_report_txt(ip, text):
+def save_report_txt(ip, text, title="IP INTELLIGENCE REPORT"):
     """Strips ANSI colors and writes the report next to the script."""
     clean = ANSI_RE.sub("", text)
-    safe_ip = ip.replace(":", "-")
+    safe_ip = re.sub(r"[:.]", "-", ip) if not valid_ip(ip) else ip.replace(":", "-")
     stamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"verdict_{safe_ip}_{stamp}.txt"
 
@@ -1015,7 +1691,7 @@ def save_report_txt(ip, text):
     path = os.path.join(base_dir, filename)
     try:
         with open(path, "w", encoding="utf-8") as f:
-            f.write(f"IP INTELLIGENCE REPORT - {ip}\n")
+            f.write(f"{title} - {ip}\n")
             f.write(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(clean)
         print(c(f"\n  Report saved to: {path}", "0;90"))
@@ -1028,103 +1704,186 @@ def pause_on_windows():
         input("\nPress ENTER to close...")
 
 
-def parse_ip_list(raw):
-    """Splits a raw string on ',' and/or '/', trims whitespace, drops empties,
-    and removes duplicates while preserving order."""
-    pieces = re.split(r"[,/]", raw)
-    seen = set()
-    out = []
-    for piece in pieces:
-        candidate = piece.strip()
-        if not candidate or candidate in seen:
-            continue
-        seen.add(candidate)
-        out.append(candidate)
-    return out
+def print_help():
+    print(f"""
+{c("VERDICT", "1;35")} {c(f"v{VERSION}", "0;90")}  IP intelligence & exposure triage
+
+{c("USAGE", "1;37")}
+  verdict [<ip|mac>[,<ip|mac>...]] [flags]
+
+  Targets are auto-detected: IPv4, IPv6 or MAC
+  (00:0c:29:ab:cd:ef · 00-0C-29-AB-CD-EF · 000c.29ab.cdef · 000c29abcdef)
+
+{c("FLAGS", "1;37")}
+      --scan           run the TCP probe on the default ports
+  -p, --ports <list>   run the TCP probe on defaults + these ports
+                       separators: , space /   ranges: 8000-8010
+                       (TCP probe is off unless one of these is given)
+      --json           structured JSON output
+      --raw            append the raw response of every source
+  -h, --help           show this help
+
+{c("DEFAULT PORTS", "1;37")}
+  {" ".join(map(str, DEFAULT_PORTS))}
+
+{c("EXAMPLES", "1;37")}
+  verdict
+  verdict 203.0.113.7
+  verdict 203.0.113.7/198.51.100.20 -p "8080, 9443"
+  verdict 203.0.113.7 --scan --json
+  verdict 00:0c:29:ab:cd:ef
+  verdict "203.0.113.7, 000c.29ab.cdef"
+""")
 
 
-def prompt_banner():
-    box_w = W
-    print(c("\n╔" + "═" * box_w + "╗", "1;35"))
-    print(c(f"║{'IP ADDRESS TO INVESTIGATE':^{box_w}}║", "1;35"))
-    print(c(f"║{'(one or more, separated by , or /)':^{box_w}}║", "0;90"))
-    print(c("╚" + "═" * box_w + "╝", "1;35"))
+def parse_args(argv):
+    o = {"targets": [], "ports": None, "scan": False, "no_ports": False, "json": False,
+         "raw": False, "help": False, "unknown": []}
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("-h", "--help"):
+            o["help"] = True
+        elif a == "--json":
+            o["json"] = True
+        elif a == "--raw":
+            o["raw"] = True
+        elif a == "--scan":
+            o["scan"] = True
+        elif a == "--no-ports":  # kept for compatibility; probe is off by default
+            o["no_ports"] = True
+        elif a in ("-p", "--ports"):
+            o["ports"] = argv[i + 1] if i + 1 < len(argv) else ""
+            i += 1
+        elif a.startswith("--ports="):
+            o["ports"] = a.split("=", 1)[1]
+        elif a.startswith("-"):
+            o["unknown"].append(a)
+        else:
+            o["targets"].append(a)
+        i += 1
+    return o
+
+
+def resolve_ports(o, targets, interactive, step="2/2"):
+    """Decides the TCP port list for this batch, honoring flags then the prompt."""
+    if o["no_ports"] or not any(t[0] == "ip" for t in targets):
+        return []
+    if o["ports"] is not None:
+        extra, bad = parse_ports(o["ports"])
+        for x in bad:
+            print(c(f"  ✗ invalid port, skipped: '{x}'", "1;31"))
+        return build_port_list(extra)
+    if o["scan"]:
+        return list(DEFAULT_PORTS)
+    if interactive:
+        extra = ask_ports(step)
+        return [] if extra is None else build_port_list(extra)
+    return []
+
+
+def run_targets(targets, ports, o):
+    if o["json"] and len(targets) > 1:
+        results = {}
+        for t in targets:
+            results[t[1]] = (merge(t[1], collect(t[1], ports)) if t[0] == "ip"
+                             else merge_mac(t[1], collect_mac(t[2])))
+        print(json.dumps(results, indent=2, ensure_ascii=False, default=str))
+        return
+    for i, t in enumerate(targets, 1):
+        kw = dict(raw=o["raw"], as_json=o["json"], idx=i, total=len(targets))
+        if t[0] == "ip":
+            investigate(t[1], ports, **kw)
+        else:
+            investigate_mac(t[1], t[2], **kw)
+
+
+def ask_next():
+    """End-of-run prompt. Enter quits; i/m force a type; anything else is
+    auto-detected. Returns a targets list or None to finish."""
+    step_header("next", "Another lookup?", "Enter closes and saves")
+    for key, val in (("i <ip>", "force IP     ·  i 8.8.8.8"),
+                     ("m <mac>", "force MAC    ·  m 00:0c:29:ab:cd:ef"),
+                     ("<value>", "auto-detect  ·  IP or MAC, several with , or /"),
+                     ("Enter", "finish")):
+        print("      " + c(f"{key:<9}", "0;37") + c(val, "0;90"))
+    while True:
+        raw = input(c(PROMPT, "1;36")).strip()
+        if not raw:
+            return None
+        forced, body = None, raw
+        m = re.match(r"^([imIM])[\s:=]+(.+)$", raw)
+        if m:
+            forced = m.group(1).lower()
+            body = m.group(2)
+        good, bad = split_targets(body)
+        if forced == "i":
+            good = [t for t in good if t[0] == "ip"]
+            bad += [t[1] for t in split_targets(body)[0] if t[0] == "mac"]
+        elif forced == "m":
+            good = [t for t in good if t[0] == "mac"]
+            bad += [t[1] for t in split_targets(body)[0] if t[0] == "ip"]
+        for x in bad:
+            label = {"i": "not an IP", "m": "not a MAC"}.get(forced, "not a valid IP or MAC")
+            print(c(f"      ✗ {label}, skipped: '{x}'", "1;31"))
+        if good:
+            return good
+        print(c("      ! nothing usable, try again (Enter to finish)", "0;33"))
 
 
 def main():
+    if platform.system() == "Windows":
+        os.system("")  # enable ANSI escape processing on cmd.exe
+    o = parse_args(sys.argv[1:])
     try:
-        flags = [a for a in sys.argv[1:] if a.startswith("--")]
-        args = [a for a in sys.argv[1:] if not a.startswith("--")]
+        if o["help"]:
+            print_help()
+            return
+        for u in o["unknown"]:
+            print(c(f"! unknown flag ignored: {u}", "0;33"))
 
-        if args:
-            raw_input_str = args[0].strip()
+        interactive = not o["targets"]
+        if not o["json"]:
+            welcome()
+
+        # Targets
+        if interactive:
+            targets = ask_targets()
         else:
-            prompt_banner()
-            raw_input_str = input(c("  ➤ ", "1;36")).strip()
-
-        candidates = parse_ip_list(raw_input_str)
-
-        if not candidates:
-            print(c("No IP address provided.", "1;31"))
-            pause_on_windows()
+            targets, bad = split_targets(",".join(o["targets"]))
+            for x in bad:
+                print(c(f"  ✗ not a valid IP or MAC, skipped: '{x}'", "1;31"))
+        if not targets:
+            print(c("\n  No IP or MAC address to investigate.", "1;31"))
             sys.exit(1)
+        has_ip = any(t[0] == "ip" for t in targets)
 
-        valid_ips, invalid_ips = [], []
-        for candidate in candidates:
-            (valid_ips if valid_ip(candidate) else invalid_ips).append(candidate)
+        ports = resolve_ports(o, targets, interactive, step="2/2")
 
-        for bad in invalid_ips:
-            print(c(f"Not a valid IP address, skipping: '{bad}'", "1;31"))
+        if not o["json"]:
+            plan_summary(targets, ports)
+        run_targets(targets, ports, o)
 
-        if not valid_ips:
-            pause_on_windows()
-            sys.exit(1)
-
-        as_json = "--json" in flags
-        raw = "--raw" in flags
-
-        if as_json and len(valid_ips) > 1:
-            results = {}
-            for ip in valid_ips:
-                b = {"properties": address_properties(ip)}
-                with ThreadPoolExecutor(max_workers=10) as ex:
-                    futs = {
-                        "ipapi_is": ex.submit(src_ipapi_is, ip),
-                        "ip_api_com": ex.submit(src_ip_api_com, ip),
-                        "ipwho_is": ex.submit(src_ipwho_is, ip),
-                        "rdap": ex.submit(src_rdap, ip),
-                        "ripe_network": ex.submit(src_ripe_network, ip),
-                        "ripe_abuse": ex.submit(src_ripe_abuse, ip),
-                        "ripe_routing": ex.submit(src_ripe_routing, ip),
-                        "dns": ex.submit(src_reverse_dns, ip),
-                        "dnsbl": ex.submit(query_all_dnsbl, ip),
-                        "tor": ex.submit(query_tor, ip),
-                    }
-                    for k, f in futs.items():
-                        b[k] = f.result()
-                rnet = ok(b["ripe_network"])
-                asns = rnet.get("asns") or []
-                asn = str(asns[0]) if asns else (str(sub(ok(b["ipapi_is"]), "asn").get("asn") or "") or None)
-                prefix = rnet.get("prefix") or sub(ok(b["ipapi_is"]), "asn").get("route")
-                with ThreadPoolExecutor(max_workers=2) as ex:
-                    fa, fr = ex.submit(src_ripe_as, asn), ex.submit(src_ripe_rpki, asn, prefix)
-                    b["ripe_as"], b["ripe_rpki"] = fa.result(), fr.result()
-                results[ip] = merge(ip, b)
-            print(json.dumps(results, indent=2, ensure_ascii=False, default=str))
-        else:
-            for i, ip in enumerate(valid_ips):
-                if i > 0 and not as_json:
-                    print(c("\n" + "═" * W, "1;35"))
-                investigate(ip, raw=raw, as_json=as_json)
+        # Interactive continuation: keep the session open for more targets.
+        while interactive and not o["json"]:
+            nxt = ask_next()
+            if nxt is None:
+                break
+            targets = nxt
+            ports = resolve_ports(o, targets, True, step="ports")
+            plan_summary(targets, ports)
+            run_targets(targets, ports, o)
 
     except KeyboardInterrupt:
-        print(c("\nInterrupted.", "0;90"))
+        print(c("\n  Interrupted.", "0;90"))
     except Exception as e:
         print(c(f"\nUnexpected error: {e}", "1;31"))
         import traceback
         traceback.print_exc()
     finally:
-        if "--json" not in sys.argv[1:]:
+        # Interactive runs end via the "Another lookup?" prompt, so only the
+        # one-shot argv path needs the keep-window-open pause on Windows.
+        if not o["json"] and not o["help"] and o["targets"]:
             pause_on_windows()
 
 
