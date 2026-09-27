@@ -1,4 +1,12 @@
-# FortiOS
+# FortiOS · cheatsheet de troubleshooting
+
+Comandos do dia a dia. Onde aparecer `<algo>`, troque pelo valor real.
+
+> **Parar qualquer debug** (guarde esse):
+> ```fortios
+> diagnose debug disable
+> diagnose debug reset
+> ```
 
 ## Index
 
@@ -9,7 +17,7 @@
 - [Ping / Traceroute / Telnet](#ping--traceroute--telnet)
 - [Packet Sniffer](#packet-sniffer)
 - [Debug Flow](#debug-flow)
-- [IPSec-VPN (Site-to-Site)](#ipsec-vpn-site-to-site)
+- [IPSec VPN (Site-to-Site)](#ipsec-vpn-site-to-site)
 - [SSL-VPN](#ssl-vpn)
 - [SAML](#saml)
 - [SSL User Authentication](#ssl-user-authentication)
@@ -29,58 +37,58 @@
 
 ## System and Status
 
-### General system status
+**Status geral**
 ```fortios
-get sys status
+get system status
 ```
 
-### HA status
+**Status do HA**
 ```fortios
-get sys ha status
+get system ha status
 ```
 
-### Global system info
+**Configuração global**
 ```fortios
 get system global
 ```
 
-### System settings (GUI security profile group)
+**Mostrar grupos de perfil de segurança na GUI**
 ```fortios
 config system settings
     set gui-security-profile-group enable
 end
 ```
 
-### Read crashlog
+**Ler o crashlog**
 ```fortios
-diag debug crashlog read
+diagnose debug crashlog read
 ```
 
-### Read config error log
+**Ler o log de erros de configuração**
 ```fortios
 diagnose debug config-error-log read
 ```
 
-### CPU / memory usage (conserve mode)
+**CPU e memória** (útil quando o box entra em conserve mode)
 ```fortios
-get sys status
-diag sys top 5 30
+get system status
+diagnose sys top 5 30          # atualiza a cada 5 s, 30 vezes
 ```
-> `c`=CPU, `m`=memória, `q`=sair. Roda a cada 5s, por 30 ciclos.
+> Dentro do `top`: `c` ordena por CPU, `m` por memória, `q` sai.
 
 ```fortios
-diag sys top 5 30 3
+diagnose sys top 5 30 3        # idem, mostrando só os 3 primeiros processos
 get hardware memory
-diag sys top-mem 10
-diag sys top-mem detail
+diagnose sys top-mem 10
+diagnose sys top-mem detail
 ```
 
-### NIC device info
+**Informações da placa de rede**
 ```fortios
-diag hardware deviceinfo nic lan1
+diagnose hardware deviceinfo nic <porta>     # ex.: lan1 — velocidade, duplex, erros
 ```
 
-### Interface speed test
+**Teste de velocidade da interface**
 ```fortios
 diagnose traffictest run
 ```
@@ -89,63 +97,71 @@ diagnose traffictest run
 
 ## Routing
 
-### Route table details for an IP
+**Qual rota o firewall usa para um IP**
 ```fortios
-get router info routing-table details 192.168.1.99
+get router info routing-table details <ip>
+# ex.: get router info routing-table details 192.168.1.99
 ```
 
-### BGP summary
+**Resumo do BGP**
 ```fortios
 get router info bgp summary
 ```
 
-### Clear BGP session (soft, inbound)
+**Limpar sessão BGP (soft, entrada)** — reaprende as rotas sem derrubar o vizinho
 ```fortios
-execute router clear bgp ip 10.2.0.250 soft in
+execute router clear bgp ip <ip-vizinho> soft in
+# ex.: execute router clear bgp ip 10.2.0.250 soft in
 ```
 
 ---
 
 ## ARP
 
-### Full ARP table
+**Tabela ARP completa**
 ```fortios
 get system arp
 ```
 
-### Check if an IP is on the network
+**Ver se um IP está na rede**
 ```fortios
-show | grep <IP-da-rede>
+get system arp | grep <ip>
 ```
 
 ---
 
 ## Sessions
 
-### List active sessions
+**Listar sessões ativas**
 ```fortios
 diagnose sys session list
 ```
 
-### Clear all sessions
+**Limpar todas as sessões**
 ```fortios
 diagnose sys session clear
 ```
+> ⚠ Sem filtro, derruba **todas** as sessões do firewall.
 
-### Delete a session by ID
+**Apagar uma sessão pelo ID**
 ```fortios
-diagnose sys session delete <ID-da-sessão>
+diagnose sys session delete <id-da-sessão>
 ```
 
-### Filter by destination IP before clearing
+**Filtrar por IP de destino antes de limpar**
 ```fortios
-diagnose sys session filter dst 10.3.79.165 10.3.79.185
+diagnose sys session filter clear
+diagnose sys session filter dst <ip>                 # ou faixa: <ip-inicial> <ip-final>
+diagnose sys session filter                          # confere o filtro aplicado
 diagnose sys session clear
+# ex.: diagnose sys session filter dst 10.3.79.165 10.3.79.185
 ```
 
-### Filter by source IP before clearing
+**Filtrar por IP de origem antes de limpar**
 ```fortios
-diagnose sys session filter scr 10.3.79.165 10.3.79.185
+diagnose sys session filter clear
+diagnose sys session filter src <ip>                 # ou faixa: <ip-inicial> <ip-final>
+diagnose sys session filter
 diagnose sys session clear
 ```
 
@@ -153,58 +169,65 @@ diagnose sys session clear
 
 ## Ping / Traceroute / Telnet
 
-### Basic ping
+**Ping simples**
 ```fortios
-exec ping 192.168.0.1
+execute ping <ip>
 ```
 
-### Ping with a specific source IP
-> Só funciona com IP de uma interface do firewall.
+**Ping com IP de origem específico** — precisa ser IP de uma interface do firewall
 ```fortios
-exec ping-options source 10.11.100.232
+execute ping-options source <ip-interface>
+execute ping <ip-destino>
+execute ping-options reset                           # volta ao padrão
 ```
 
-### Traceroute
+**Traceroute**
 ```fortios
-exec traceroute 10.11.100.232
+execute traceroute <ip>
 ```
 
-### Telnet (port test)
+**Telnet (testar porta)**
 ```fortios
-exec telnet 10.11.100.232 22
+execute telnet <ip> <porta>
+# ex.: execute telnet 10.11.100.232 22
 ```
 
 ---
 
 ## Packet Sniffer
 
-### By host
+Formato: `diagnose sniffer packet <interface> "<filtro>" <verbosidade> [qtd] [tempo]`
+
+**Por host**
 ```fortios
-diagnose sniffer packet any "host 10.211.12.68" 4
+diagnose sniffer packet any "host <ip>" 4
 ```
 
-### Host + protocol (ICMP)
+**Host + protocolo (ICMP)**
 ```fortios
-diagnose sniffer packet any "host 201.55.34.141 and icmp" 4
+diagnose sniffer packet any "host <ip> and icmp" 4
 ```
 
-### Specific source and destination
+**Origem e destino específicos**
 ```fortios
-diagnose sniffer packet any "host 201.55.34.141 and host 10.211.12.68" 4
+diagnose sniffer packet any "host <ip-a> and host <ip-b>" 4
 ```
+> Verbosidade `4` mostra a interface de entrada e saída. `Ctrl+C` para a captura.
 
 ---
 
 ## Debug Flow
 
-### Basic debug flow (generic)
+Mostra o caminho do pacote dentro do firewall: rota escolhida, política que bateu, NAT e motivo de drop.
+
+**Debug flow básico**
 ```fortios
 diagnose debug disable
 diagnose debug flow trace stop
 diagnose debug flow filter clear
-diagnose debug flow filter saddr 10.44.114.36
-diagnose debug flow filter daddr 10.200.24.10
-diagnose debug flow filter dport 5060
+diagnose debug flow filter saddr <ip-origem>
+diagnose debug flow filter daddr <ip-destino>
+diagnose debug flow filter dport <porta>
 diagnose debug flow show console enable
 diagnose debug flow show function-name enable
 diagnose debug flow show iprope enable
@@ -213,50 +236,36 @@ diagnose debug flow trace start 9999
 diagnose debug enable
 ```
 
-### Available filters (`diagnose debug flow filter ?`)
+**Filtros disponíveis** (`diagnose debug flow filter ?`)
 
-| Option | Descrição |
-|---|---|
-| `clear` | Limpa o filtro. |
-| `vd` | Índice da VDOM. |
-| `vd-name` | Nome da VDOM. |
-| `proto` | Número do protocolo (1=ICMP, 6=TCP, 17=UDP). |
-| `addr` | IP de origem ou destino. |
-| `saddr` | IP de origem. |
-| `daddr` | IP de destino. |
-| `port` | Porta de origem ou destino. |
-| `sport` | Porta de origem. |
-| `dport` | Porta de destino. |
-| `negate` | Inverte o filtro. |
+| Filtro | O que faz | Exemplo |
+|---|---|---|
+| `clear` | Limpa todos os filtros | `filter clear` |
+| `vd` | VDOM pelo índice | `filter vd 0` |
+| `vd-name` | VDOM pelo nome | `filter vd-name root` |
+| `proto` | Protocolo (1 ICMP, 6 TCP, 17 UDP) | `filter proto 6` |
+| `addr` | IP de origem **ou** destino (aceita faixa) | `filter addr 10.253.106.101 10.130.89.95` |
+| `saddr` | IP de origem | `filter saddr 177.92.88.242` |
+| `daddr` | IP de destino | `filter daddr 10.0.4.133` |
+| `port` | Porta de origem **ou** destino | `filter port 5060` |
+| `sport` | Porta de origem | `filter sport 5060` |
+| `dport` | Porta de destino | `filter dport 5060` |
+| `negate` | Inverte o filtro seguinte | `filter negate saddr 10.44.114.36` |
 
-### Usage examples
-```fortios
-diagnose debug flow filter clear
-diagnose debug flow filter vd 0
-diagnose debug flow filter vd-name root
-diagnose debug flow filter proto 6
-diagnose debug flow filter addr 10.253.106.101
-diagnose debug flow filter addr 10.253.106.101 10.130.89.95
-diagnose debug flow filter saddr 177.92.88.242
-diagnose debug flow filter daddr 10.0.4.133
-diagnose debug flow filter port 5060
-diagnose debug flow filter sport 5060
-diagnose debug flow filter dport 5060
-diagnose debug flow filter negate saddr 10.44.114.36
-```
+> Todos começam com `diagnose debug flow`.
 
-### Stop debug
+**Parar o debug**
 ```fortios
 diagnose debug disable
 ```
 
-### Full flow with iprope (route lookup)
+**Flow completo com iprope (lookup de rota e política)**
 ```fortios
 diagnose debug disable
 diagnose debug flow trace stop
 diagnose debug flow filter clear
 diagnose debug flow show iprope enable
-diagnose debug flow filter dport 514
+diagnose debug flow filter dport <porta>             # ex.: 514
 diagnose debug flow show console enable
 diagnose debug flow show function-name enable
 diagnose debug console timestamp enable
@@ -264,63 +273,65 @@ diagnose debug flow trace start 999999
 diagnose debug enable
 ```
 
-### Iprope Lookup
+**Iprope lookup** — testa qual política casa, sem gerar tráfego
 ```fortios
-diag firewall iprope lookup 172.20.100.5 0 172.20.142.50 8400 6 RT_DMZ-ROOT0
+diagnose firewall iprope lookup <ip-origem> <porta-origem> <ip-destino> <porta-destino> <proto> <interface-origem>
+# ex.: diagnose firewall iprope lookup 172.20.100.5 0 172.20.142.50 8400 6 RT_DMZ-ROOT0
 ```
 
-### View interfaces via fnsysctl
+**Ver interfaces via fnsysctl**
 ```fortios
-fnsysctl ifconfig interface
+fnsysctl ifconfig <interface>
 ```
 
-### List known IP addresses
+**Listar os IPs do firewall**
 ```fortios
 diagnose ip address list
 ```
 
-### View system zone (VLANs)
+**Ver zonas com VLANs**
 ```fortios
-show sys zone | grep VLAN
+show system zone | grep VLAN
 ```
 
 ---
 
 ## IPSec VPN (Site-to-Site)
 
-### IKE negotiation debug
+**Debug da negociação IKE**
 ```fortios
 diagnose debug disable
 diagnose debug reset
-diagnose vpn ike log-filter dst-addr4 192.168.10.164
-diagnose vpn ike log-filter rem-addr4 10.44.120.1
-diag debug application ike -1
+diagnose vpn ike log-filter clear
+diagnose vpn ike log-filter dst-addr4 <ip-local>
+diagnose vpn ike log-filter rem-addr4 <ip-peer>
+diagnose debug application ike -1
 diagnose debug console timestamp enable
 diagnose debug enable
 ```
 
-### Check if phase 1 is established
+**Ver se a fase 1 subiu**
 ```fortios
-diag vpn ike gateway list name "VPN_NAME"
+diagnose vpn ike gateway list name "<nome-vpn>"
 ```
 
-### Tunnel summary (phase 1 and 2)
+**Resumo do túnel (fase 1 e 2)**
 ```fortios
-get vpn ipsec tunnel summary | grep -i -f "VPN_NAME"
+get vpn ipsec tunnel summary | grep -i -f "<nome-vpn>"
 ```
 
 ---
 
-## SSL VPN
+## SSL-VPN
 
-### General SSL VPN debug
+**Debug geral**
 ```fortios
-dia debug en
-dia debug reset
-diag debug app fnbamd 255
+diagnose debug reset
+diagnose debug application fnbamd 255
+diagnose debug enable
 ```
 
-### List and drop SSL VPN sessions
+**Listar e derrubar sessões**
 ```fortios
 execute vpn sslvpn list
 execute vpn sslvpn del-all
@@ -330,7 +341,7 @@ execute vpn sslvpn del-all
 
 ## SAML
 
-### SAML authentication debug
+**Debug de autenticação SAML**
 ```fortios
 diagnose debug application httpsd -1
 diagnose debug application samld -1
@@ -342,19 +353,19 @@ diagnose debug enable
 
 ## SSL User Authentication
 
-### Default debug (local user/password)
+**Padrão (usuário e senha locais)**
 ```fortios
-diag deb reset
-diag deb console timestamp enable
-diag deb application fnbamd -1
-diag deb application authd -1
-diag deb application sslvpn -1
-diag deb enable
+diagnose debug reset
+diagnose debug console timestamp enable
+diagnose debug application fnbamd -1
+diagnose debug application authd -1
+diagnose debug application sslvpn -1
+diagnose debug enable
 ```
 
-### Debug with SAML
+**Com SAML**
 ```fortios
-diagnose vpn ssl debug-filter src-addr
+diagnose vpn ssl debug-filter src-addr4 <ip-usuario>
 diagnose debug application samld -1
 diagnose debug application sslvpn -1
 diagnose debug enable
@@ -364,7 +375,7 @@ diagnose debug enable
 
 ## FSSO
 
-### FSSO server status
+**Status do servidor FSSO**
 ```fortios
 diagnose debug enable
 diagnose debug authd fsso server-status
@@ -374,55 +385,54 @@ diagnose debug authd fsso server-status
 
 ## DHCP
 
-### DHCP service debug
+**Debug do serviço DHCP**
 ```fortios
-diag debug reset
-diag debug application dhcps -1
-diag debug enable
+diagnose debug reset
+diagnose debug application dhcps -1
+diagnose debug enable
 ```
 
-### Stop debug
+**Parar o debug**
 ```fortios
-diag debug reset
-diag debug disable
+diagnose debug reset
+diagnose debug disable
 ```
 
 ---
 
 ## Web Filter
 
-### Test FortiGuard connectivity
+**Testar conectividade com o FortiGuard**
 ```fortios
 diagnose debug rating
-exec ping service.fortiguard.net
-exec ping update.fortiguard.net
-exec ping guard.fortinet.net
+execute ping service.fortiguard.net
+execute ping update.fortiguard.net
+execute ping guard.fortinet.net
 ```
 
-### View webfilter category in logs
+**Ver categoria de web filter nos logs**
 ```fortios
 execute log filter category utm-webfilter
 execute log display
 ```
 
-### Rating/database update debug
+**Debug de rating e atualização de base**
 ```fortios
-diag debug application update -1
-diag debug enable
-exec update-now
+diagnose debug application update -1
+diagnose debug enable
+execute update-now
 ```
 
-### Search FQDN in firewall lists
+**Procurar FQDN nos objetos do firewall**
 ```fortios
-diag firewall fqdn list | grep -i -f youtube
+diagnose firewall fqdn list | grep -i -f <dominio>
+# ex.: diagnose firewall fqdn list | grep -i -f youtube
 ```
 
-### Create a custom URL filter table
+**Criar tabela de URL filter e ligar no perfil**
 ```fortios
-show webfilter profile
-config web
-    set urlfilter-table 0
-    edit 0
+config webfilter urlfilter
+    edit 0                                  # 0 = próximo ID livre
         set name "RAVPN-WEB-PROF"
         config entries
             edit 1
@@ -435,50 +445,60 @@ config web
             next
             edit 3
                 set url "download.docker.com"
-                set type wildcard
             next
         end
     next
 end
+
+config webfilter profile
+    edit "<perfil>"
+        config web
+            set urlfilter-table <id-da-tabela>
+        end
+    next
+end
 ```
-> `wildcard` para domínios com `*`; URL exata dispensa `set type`.
+> Use `set type wildcard` quando tiver `*`. URL exata usa o tipo padrão. Confira o ID gerado com `show webfilter urlfilter`.
 
 ---
 
 ## BGP
 
-Ver seção [Routing](#routing).
+Ver a seção [Routing](#routing).
 
 ---
 
 ## HA (High Availability)
 
-### Take over management of an HA node
+**Acessar um membro do cluster**
 ```fortios
-exec ha manage 0 jusantos
+execute ha manage <id-membro> <usuario>
+# ex.: execute ha manage 0 jusantos
 ```
 
-### Set node priority
+**Definir prioridade do nó**
 ```fortios
-exec ha set-priority FG4H0E5819900156 151
+execute ha set-priority <serial> <prioridade>
+# ex.: execute ha set-priority FG4H0E5819900156 151
 ```
 
-### Reset HA uptime (force re-election)
+**Zerar uptime do HA (forçar nova eleição)**
 ```fortios
 diagnose sys ha reset-uptime
 ```
+> ⚠ Pode causar failover. Faça em janela.
 
 ---
 
 ## Link Monitor / SD-WAN
 
-### Create a link monitor probe
+**Criar probe de link monitor**
 ```fortios
 config system link-monitor
     edit "ProbeMPLS"
-        set srcintf port1
-        set gateway-ip 10.112.36.194
-        set server 10.41.122.2
+        set srcintf <interface>
+        set gateway-ip <gateway>
+        set server <ip-alvo>
     next
 end
 ```
@@ -487,49 +507,54 @@ end
 
 ## Firewall Policy
 
-### Reorder a rule
+**Mover uma regra**
 ```fortios
-move 956 before 905
-move 501 before 87
+config firewall policy
+    move <id> before <id-referencia>
+end
+# ex.: move 956 before 905
 ```
 
 ---
 
 ## Automation Stitch
 
-### Debug automation not triggering
+**Debug de automation que não dispara**
 ```fortios
 diagnose debug reset
 diagnose debug application autod -1
 diagnose debug enable
 ```
-> Referência: [Fortinet Community — Technical Tip: How to check why automation stitch is not working](https://community.fortinet.com/fortigate-3/technical-tip-how-to-check-why-automation-stitch-is-not-working-as-expected-92733)
+> Referência: [Fortinet Community: how to check why automation stitch is not working](https://community.fortinet.com/fortigate-3/technical-tip-how-to-check-why-automation-stitch-is-not-working-as-expected-92733)
 
 ---
 
 ## Interfaces and Hardware
 
-Ver [System and Status](#system-and-status) para deviceinfo de NIC e teste de velocidade.
+Ver [System and Status](#system-and-status) para informações da placa de rede e teste de velocidade.
 
 ---
 
 ## REST API
 
-### View plaintext password for an IPSec VPN (phase1-interface)
+**Ver a PSK de uma VPN IPsec em texto puro (phase1-interface)**
 ```
-https://<IP-do-firewall>:11443/api/v2/cmdb/vpn.ipsec/phase1-interface/<NOME-DA-VPN>?plain-text-password=1
+https://<ip-firewall>:<porta-admin>/api/v2/cmdb/vpn.ipsec/phase1-interface/<nome-vpn>?plain-text-password=1
 ```
 
-**Exemplos:**
+Exemplos:
 ```
 https://192.168.253.253:11443/api/v2/cmdb/vpn.ipsec/phase1-interface/VPN_DC-01?plain-text-password=1
 https://192.168.1.99:11443/api/v2/cmdb/vpn.ipsec/phase1-interface/VPN_DC-WCS?plain-text-password=1
 ```
+> Precisa estar logado na GUI no mesmo navegador.
 
 ---
 
 ## Sudo (Cross-VDOM Commands)
 
+Roda um comando em outra VDOM sem precisar entrar nela.
 ```fortios
-sudo FILIAIS get router info routing-table details x.x.x.x
+sudo <vdom> get router info routing-table details <ip>
+# ex.: sudo FILIAIS get router info routing-table details 10.0.0.1
 ```
