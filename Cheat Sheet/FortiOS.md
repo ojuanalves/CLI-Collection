@@ -1,6 +1,6 @@
 # FortiOS · cheatsheet de troubleshooting
 
-Comandos do dia a dia. Onde aparecer `<algo>`, troque pelo valor real.
+Comandos do dia a dia. Onde aparecer `<algo>`, troque pelo valor real. Os exemplos ficam sempre abaixo do bloco, para o copiar pegar só o comando.
 
 > **Parar qualquer debug** (guarde esse):
 > ```fortios
@@ -10,6 +10,7 @@ Comandos do dia a dia. Onde aparecer `<algo>`, troque pelo valor real.
 
 ## Index
 
+- [Iprope Lookup](#iprope-lookup)
 - [System and Status](#system-and-status)
 - [Routing](#routing)
 - [ARP](#arp)
@@ -35,11 +36,39 @@ Comandos do dia a dia. Onde aparecer `<algo>`, troque pelo valor real.
 
 ---
 
+## Iprope Lookup
+
+**Testar qual política casa com um tráfego, sem gerar tráfego**
+```fortios
+diagnose firewall iprope lookup <ip-origem> <porta-origem> <ip-destino> <porta-destino> <protocolo> <interface-origem>
+```
+Ex.: `diagnose firewall iprope lookup 10.210.14.139 0 57.144.179.32 443 6 port3`
+
+| # | Campo | Observação |
+|---|---|---|
+| 1 | IP de origem | |
+| 2 | Porta de origem | Use `0` quando não importar |
+| 3 | IP de destino | |
+| 4 | Porta de destino | |
+| 5 | Protocolo | Número, ver tabela abaixo |
+| 6 | Interface de origem | Por onde o tráfego entra (porta, VLAN ou túnel) |
+
+| ICMP | TCP | UDP |
+|:---:|:---:|:---:|
+| 1 | 6 | 17 |
+
+---
+
 ## System and Status
 
 **Status geral**
 ```fortios
 get system status
+```
+
+**Informações do sistema**
+```fortios
+get system info
 ```
 
 **Status do HA**
@@ -64,29 +93,40 @@ end
 diagnose debug crashlog read
 ```
 
-**Ler o log de erros de configuração**
+**Ler o log de erros de configuração** (bom checar depois de upgrade)
 ```fortios
 diagnose debug config-error-log read
 ```
 
-**CPU e memória** (útil quando o box entra em conserve mode)
+**Resumo de CPU e memória**
 ```fortios
-get system status
-diagnose sys top 5 30          # atualiza a cada 5 s, 30 vezes
+diagnose sys top-summary
 ```
-> Dentro do `top`: `c` ordena por CPU, `m` por memória, `q` sai.
 
+**CPU e memória por processo** (conserve mode)
+
+Atualiza a cada 5 s, 30 vezes. Dentro do `top`: `c` ordena por CPU, `m` por memória, `q` sai.
 ```fortios
-diagnose sys top 5 30 3        # idem, mostrando só os 3 primeiros processos
+diagnose sys top 5 30
+```
+
+Mesma coisa, mostrando só os 3 primeiros processos:
+```fortios
+diagnose sys top 5 30 3
+```
+
+Memória:
+```fortios
 get hardware memory
 diagnose sys top-mem 10
 diagnose sys top-mem detail
 ```
 
-**Informações da placa de rede**
+**Informações da placa de rede** (velocidade, duplex, erros)
 ```fortios
-diagnose hardware deviceinfo nic <porta>     # ex.: lan1 — velocidade, duplex, erros
+diagnose hardware deviceinfo nic <porta>
 ```
+Ex.: `diagnose hardware deviceinfo nic lan1`
 
 **Teste de velocidade da interface**
 ```fortios
@@ -100,8 +140,8 @@ diagnose traffictest run
 **Qual rota o firewall usa para um IP**
 ```fortios
 get router info routing-table details <ip>
-# ex.: get router info routing-table details 192.168.1.99
 ```
+Ex.: `get router info routing-table details 192.168.1.99`
 
 **Resumo do BGP**
 ```fortios
@@ -111,8 +151,8 @@ get router info bgp summary
 **Limpar sessão BGP (soft, entrada)** — reaprende as rotas sem derrubar o vizinho
 ```fortios
 execute router clear bgp ip <ip-vizinho> soft in
-# ex.: execute router clear bgp ip 10.2.0.250 soft in
 ```
+Ex.: `execute router clear bgp ip 10.2.0.250 soft in`
 
 ---
 
@@ -123,9 +163,15 @@ execute router clear bgp ip <ip-vizinho> soft in
 get system arp
 ```
 
-**Ver se um IP está na rede**
+**Filtrar por IP ou range**
 ```fortios
-get system arp | grep <ip>
+get system arp | grep <ip-ou-rede>
+```
+Ex.: `get system arp | grep 10.11.100.`
+
+**Procurar um IP na configuração**
+```fortios
+show | grep <ip>
 ```
 
 ---
@@ -148,22 +194,25 @@ diagnose sys session clear
 diagnose sys session delete <id-da-sessão>
 ```
 
-**Filtrar por IP de destino antes de limpar**
+**Filtrar por IP de destino antes de limpar** (aceita um IP ou uma faixa)
 ```fortios
 diagnose sys session filter clear
-diagnose sys session filter dst <ip>                 # ou faixa: <ip-inicial> <ip-final>
-diagnose sys session filter                          # confere o filtro aplicado
+diagnose sys session filter dst <ip-inicial> <ip-final>
+diagnose sys session filter
 diagnose sys session clear
-# ex.: diagnose sys session filter dst 10.3.79.165 10.3.79.185
 ```
+Ex.: `diagnose sys session filter dst 10.3.79.165 10.3.79.185`
+
+O `filter` sem argumento mostra o filtro aplicado, para conferir antes do `clear`.
 
 **Filtrar por IP de origem antes de limpar**
 ```fortios
 diagnose sys session filter clear
-diagnose sys session filter src <ip>                 # ou faixa: <ip-inicial> <ip-final>
+diagnose sys session filter src <ip-inicial> <ip-final>
 diagnose sys session filter
 diagnose sys session clear
 ```
+Ex.: `diagnose sys session filter src 10.3.79.165 10.3.79.185`
 
 ---
 
@@ -178,7 +227,12 @@ execute ping <ip>
 ```fortios
 execute ping-options source <ip-interface>
 execute ping <ip-destino>
-execute ping-options reset                           # volta ao padrão
+```
+Ex.: `execute ping-options source 10.11.100.232`
+
+Para voltar ao padrão:
+```fortios
+execute ping-options reset
 ```
 
 **Traceroute**
@@ -189,30 +243,32 @@ execute traceroute <ip>
 **Telnet (testar porta)**
 ```fortios
 execute telnet <ip> <porta>
-# ex.: execute telnet 10.11.100.232 22
 ```
+Ex.: `execute telnet 10.11.100.232 22`
 
 ---
 
 ## Packet Sniffer
 
-Formato: `diagnose sniffer packet <interface> "<filtro>" <verbosidade> [qtd] [tempo]`
+Formato: `diagnose sniffer packet <interface> "<filtro>" <verbosidade> [qtd] [tempo]`. Verbosidade `4` mostra a interface de entrada e saída. `Ctrl+C` para a captura.
 
 **Por host**
 ```fortios
 diagnose sniffer packet any "host <ip>" 4
 ```
+Ex.: `diagnose sniffer packet any "host 10.211.12.68" 4`
 
 **Host + protocolo (ICMP)**
 ```fortios
 diagnose sniffer packet any "host <ip> and icmp" 4
 ```
+Ex.: `diagnose sniffer packet any "host 201.55.34.141 and icmp" 4`
 
 **Origem e destino específicos**
 ```fortios
 diagnose sniffer packet any "host <ip-a> and host <ip-b>" 4
 ```
-> Verbosidade `4` mostra a interface de entrada e saída. `Ctrl+C` para a captura.
+Ex.: `diagnose sniffer packet any "host 201.55.34.141 and host 10.211.12.68" 4`
 
 ---
 
@@ -244,15 +300,15 @@ diagnose debug enable
 | `vd` | VDOM pelo índice | `filter vd 0` |
 | `vd-name` | VDOM pelo nome | `filter vd-name root` |
 | `proto` | Protocolo (1 ICMP, 6 TCP, 17 UDP) | `filter proto 6` |
-| `addr` | IP de origem **ou** destino (aceita faixa) | `filter addr 10.253.106.101 10.130.89.95` |
-| `saddr` | IP de origem | `filter saddr 177.92.88.242` |
-| `daddr` | IP de destino | `filter daddr 10.0.4.133` |
+| `addr` | IP de origem **ou** destino (aceita faixa) | `filter addr 10.2.54.3 10.2.35.5` |
+| `saddr` | IP de origem | `filter saddr 10.255.254.1` |
+| `daddr` | IP de destino | `filter daddr 8.8.8.8` |
 | `port` | Porta de origem **ou** destino | `filter port 5060` |
 | `sport` | Porta de origem | `filter sport 5060` |
-| `dport` | Porta de destino | `filter dport 5060` |
+| `dport` | Porta de destino | `filter dport 1521` |
 | `negate` | Inverte o filtro seguinte | `filter negate saddr 10.44.114.36` |
 
-> Todos começam com `diagnose debug flow`.
+> Todos começam com `diagnose debug flow`. Rodar o filtro sem valor (ex.: `filter saddr`) remove só aquele filtro.
 
 **Parar o debug**
 ```fortios
@@ -265,19 +321,16 @@ diagnose debug disable
 diagnose debug flow trace stop
 diagnose debug flow filter clear
 diagnose debug flow show iprope enable
-diagnose debug flow filter dport <porta>             # ex.: 514
+diagnose debug flow filter dport <porta>
 diagnose debug flow show console enable
 diagnose debug flow show function-name enable
 diagnose debug console timestamp enable
 diagnose debug flow trace start 999999
 diagnose debug enable
 ```
+Ex.: `diagnose debug flow filter dport 514`
 
-**Iprope lookup** — testa qual política casa, sem gerar tráfego
-```fortios
-diagnose firewall iprope lookup <ip-origem> <porta-origem> <ip-destino> <porta-destino> <proto> <interface-origem>
-# ex.: diagnose firewall iprope lookup 172.20.100.5 0 172.20.142.50 8400 6 RT_DMZ-ROOT0
-```
+Para testar a política sem gerar tráfego, ver [Iprope Lookup](#iprope-lookup).
 
 **Ver interfaces via fnsysctl**
 ```fortios
@@ -426,13 +479,51 @@ execute update-now
 **Procurar FQDN nos objetos do firewall**
 ```fortios
 diagnose firewall fqdn list | grep -i -f <dominio>
-# ex.: diagnose firewall fqdn list | grep -i -f youtube
+```
+Ex.: `diagnose firewall fqdn list | grep -i -f youtube`
+
+**Ver os perfis de web filter**
+```fortios
+show webfilter profile
 ```
 
-**Criar tabela de URL filter e ligar no perfil**
+**Criar tabela de URL filter**
+
+O `edit 0` pega o próximo ID livre. Use `set type wildcard` quando a URL tiver `*`; URL exata usa o tipo padrão.
 ```fortios
 config webfilter urlfilter
-    edit 0                                  # 0 = próximo ID livre
+    edit 0
+        set name "<nome-da-tabela>"
+        config entries
+            edit 1
+                set url "<url>"
+                set type wildcard
+            next
+        end
+    next
+end
+```
+
+Confira o ID gerado:
+```fortios
+show webfilter urlfilter
+```
+
+**Ligar a tabela no perfil**
+```fortios
+config webfilter profile
+    edit "<perfil>"
+        config web
+            set urlfilter-table <id-da-tabela>
+        end
+    next
+end
+```
+
+Exemplo (tabela RAVPN-WEB-PROF):
+```fortios
+config webfilter urlfilter
+    edit 0
         set name "RAVPN-WEB-PROF"
         config entries
             edit 1
@@ -445,20 +536,53 @@ config webfilter urlfilter
             next
             edit 3
                 set url "download.docker.com"
+                set type wildcard
+            next
+            edit 4
+                set url "*.redhat.com"
+                set type wildcard
+            next
+            edit 5
+                set url "reinf.receita.fazenda.gov.br"
+            next
+            edit 6
+                set url "preprodefdreinf.receita.fazenda.gov.br"
+            next
+            edit 7
+                set url "maps.googleapis.com"
+                set type wildcard
+            next
+            edit 8
+                set url "totvs.logistica.totvs.app"
+                set type wildcard
+            next
+            edit 9
+                set url "gefcoindustria.logistica.totvs.app"
+                set type wildcard
+            next
+            edit 10
+                set url "admin.rac.totvs.app"
+                set type wildcard
+            next
+            edit 11
+                set url "40.121.71.32"
+            next
+            edit 12
+                set url "*argoit.com.br*"
+                set type wildcard
+            next
+            edit 14
+                set url "*api.unidas.com.br*"
+                set type wildcard
+            next
+            edit 15
+                set url "*multirio.com.br*"
+                set type wildcard
             next
         end
     next
 end
-
-config webfilter profile
-    edit "<perfil>"
-        config web
-            set urlfilter-table <id-da-tabela>
-        end
-    next
-end
 ```
-> Use `set type wildcard` quando tiver `*`. URL exata usa o tipo padrão. Confira o ID gerado com `show webfilter urlfilter`.
 
 ---
 
@@ -473,14 +597,14 @@ Ver a seção [Routing](#routing).
 **Acessar um membro do cluster**
 ```fortios
 execute ha manage <id-membro> <usuario>
-# ex.: execute ha manage 0 jusantos
 ```
+Ex.: `execute ha manage 0 jusantos`
 
 **Definir prioridade do nó**
 ```fortios
 execute ha set-priority <serial> <prioridade>
-# ex.: execute ha set-priority FG4H0E5819900156 151
 ```
+Ex.: `execute ha set-priority FG4H0E5819900156 151`
 
 **Zerar uptime do HA (forçar nova eleição)**
 ```fortios
@@ -493,12 +617,25 @@ diagnose sys ha reset-uptime
 ## Link Monitor / SD-WAN
 
 **Criar probe de link monitor**
+
+`gateway-ip` é o next-hop; `server` é o IP que vai ser testado.
+```fortios
+config system link-monitor
+    edit "<nome-probe>"
+        set srcintf <interface>
+        set gateway-ip <next-hop>
+        set server <ip-alvo>
+    next
+end
+```
+
+Exemplo:
 ```fortios
 config system link-monitor
     edit "ProbeMPLS"
-        set srcintf <interface>
-        set gateway-ip <gateway>
-        set server <ip-alvo>
+        set srcintf port1
+        set gateway-ip 10.112.36.194
+        set server 10.41.122.2
     next
 end
 ```
@@ -512,8 +649,8 @@ end
 config firewall policy
     move <id> before <id-referencia>
 end
-# ex.: move 956 before 905
 ```
+Ex.: `move 956 before 905`
 
 ---
 
@@ -538,6 +675,8 @@ Ver [System and Status](#system-and-status) para informações da placa de rede 
 ## REST API
 
 **Ver a PSK de uma VPN IPsec em texto puro (phase1-interface)**
+
+Precisa estar logado na GUI no mesmo navegador.
 ```
 https://<ip-firewall>:<porta-admin>/api/v2/cmdb/vpn.ipsec/phase1-interface/<nome-vpn>?plain-text-password=1
 ```
@@ -547,7 +686,6 @@ Exemplos:
 https://192.168.253.253:11443/api/v2/cmdb/vpn.ipsec/phase1-interface/VPN_DC-01?plain-text-password=1
 https://192.168.1.99:11443/api/v2/cmdb/vpn.ipsec/phase1-interface/VPN_DC-WCS?plain-text-password=1
 ```
-> Precisa estar logado na GUI no mesmo navegador.
 
 ---
 
@@ -556,5 +694,5 @@ https://192.168.1.99:11443/api/v2/cmdb/vpn.ipsec/phase1-interface/VPN_DC-WCS?pla
 Roda um comando em outra VDOM sem precisar entrar nela.
 ```fortios
 sudo <vdom> get router info routing-table details <ip>
-# ex.: sudo FILIAIS get router info routing-table details 10.0.0.1
 ```
+Ex.: `sudo FILIAIS get router info routing-table details 10.0.0.1`
