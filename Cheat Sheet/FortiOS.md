@@ -154,6 +154,18 @@ execute router clear bgp ip <ip-vizinho> soft in
 ```
 Ex.: `execute router clear bgp ip 10.2.0.250 soft in`
 
+**Advertised Routes** — Visualiza as Rotas Advertidas / Enviadas
+
+```fortios
+get router info bgp neighbors <ip-vizinho> advertised-routes
+```
+
+**Received Routes** — Visualiza as Rotas Recebidas
+
+```fortios
+get router info bgp neighbors <ip-vizinho> received-routes
+```
+
 ---
 
 ## ARP
