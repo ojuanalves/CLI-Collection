@@ -367,9 +367,9 @@ show system zone | grep VLAN
 ```fortios
 diagnose debug disable
 diagnose debug reset
-diagnose vpn ike log-filter clear
-diagnose vpn ike log-filter dst-addr4 <ip-local>
-diagnose vpn ike log-filter rem-addr4 <ip-peer>
+diagnose vpn ike log filter clear
+diagnose vpn ike log filter dst-addr4 <ip-local>
+diagnose vpn ike log filter rem-addr4 <ip-peer>
 diagnose debug application ike -1
 diagnose debug console timestamp enable
 diagnose debug enable
