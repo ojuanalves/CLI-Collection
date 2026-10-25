@@ -1,7 +1,15 @@
-# FortiOS · troubleshooting cheatsheet
+# 🔥 FortiOS · troubleshooting cheatsheet
 
 Day-to-day CLI commands. Replace anything in `<angle-brackets>` with the real value. Examples always sit below the block, so the copy button only grabs the command.
 
+| Icon | Meaning |
+|:---:|---|
+| 🔴 | **Disruptive.** Drops sessions, tunnels or users, restarts something, or exposes a secret. |
+| 🟡 | **Debug or config change.** Loads the CPU or changes the config. Stop or revert it when you're done. |
+
+No icon means **read only**, safe to run.
+
+> [!IMPORTANT]
 > **Stop any debug** (keep this one handy):
 > ```fortios
 > diagnose debug disable
@@ -9,44 +17,46 @@ Day-to-day CLI commands. Replace anything in `<angle-brackets>` with the real va
 > ```
 > Ex.: run it right after a `diagnose debug application ike -1` session so the console stops scrolling.
 
+> [!WARNING]
+> **Use debug commands carefully on production devices.** Filter first, and stop the debug as soon as you have what you need.
+
 ## Index
 
-- [Troubleshooting workflow](#troubleshooting-workflow)
-- [Iprope lookup](#iprope-lookup)
-- [System and status](#system-and-status)
+- [🎯 Iprope lookup](#-iprope-lookup)
+- [🔑 Sudo (cross-VDOM commands)](#-sudo-cross-vdom-commands)
+- [📊 System and status](#-system-and-status)
   - [Device info](#device-info) · [GUI settings](#gui-settings) · [Crash and error logs](#crash-and-error-logs) · [CPU and memory](#cpu-and-memory) · [Restarting processes](#restarting-processes)
-- [Interfaces and hardware](#interfaces-and-hardware)
+- [🔌 Interfaces and hardware](#-interfaces-and-hardware)
   - [Interface status](#interface-status) · [NIC and throughput](#nic-and-throughput)
-- [Routing](#routing)
+- [🚦 Routing](#-routing)
   - [Route lookup](#route-lookup) · [Static](#static) · [Policy routes](#policy-routes) · [BGP](#bgp) · [OSPF](#ospf)
-- [ARP](#arp)
-- [Sessions](#sessions)
+- [📇 ARP](#-arp)
+- [🔗 Sessions](#-sessions)
   - [List and stats](#list-and-stats) · [Filter and clear](#filter-and-clear)
-- [Ping, traceroute and telnet](#ping-traceroute-and-telnet)
-- [Packet sniffer](#packet-sniffer)
-- [Debug flow](#debug-flow)
-- [NAT](#nat)
-- [Firewall policy](#firewall-policy)
-- [VPN](#vpn)
+- [📡 Ping, traceroute and telnet](#-ping-traceroute-and-telnet)
+- [🔍 Packet sniffer](#-packet-sniffer)
+- [🐞 Debug flow](#-debug-flow)
+- [🔄 NAT](#-nat)
+- [🧱 Firewall policy](#-firewall-policy)
+- [🔐 VPN](#-vpn)
   - [IPsec (site-to-site)](#ipsec-site-to-site) · [SSL-VPN](#ssl-vpn)
-- [Authentication](#authentication)
+- [👤 Authentication](#-authentication)
   - [Local and SSL-VPN users](#local-and-ssl-vpn-users) · [SAML](#saml) · [FSSO](#fsso) · [FortiClient EMS](#forticlient-ems)
-- [DNS](#dns)
-- [DHCP](#dhcp)
-- [Web filter and security profiles](#web-filter-and-security-profiles)
+- [🌐 DNS](#-dns)
+- [📬 DHCP](#-dhcp)
+- [🚫 Web filter and security profiles](#-web-filter-and-security-profiles)
   - [FortiGuard](#fortiguard) · [Web filter logs](#web-filter-logs) · [URL filter](#url-filter) · [Security profile engines](#security-profile-engines)
-- [Logging](#logging)
-- [HA (high availability)](#ha-high-availability)
-- [SD-WAN and link monitor](#sd-wan-and-link-monitor)
-- [Automation stitch](#automation-stitch)
-- [REST API](#rest-api)
-- [Sudo (cross-VDOM commands)](#sudo-cross-vdom-commands)
+- [📝 Logging](#-logging)
+- [🔁 HA (high availability)](#-ha-high-availability)
+- [📶 SD-WAN and link monitor](#-sd-wan-and-link-monitor)
+- [🤖 Automation stitch](#-automation-stitch)
+- [🧩 REST API](#-rest-api)
 
-Companion doc: [Route Process](Route%20Process.md) explains the order in which FortiGate picks a route.
+📖 Companion doc: [Route Process](Route%20Process.md) explains the order in which FortiGate picks a route.
 
 ---
 
-## Iprope lookup
+## 🎯 Iprope lookup
 
 **Find which policy matches a flow without generating traffic**
 ```fortios
@@ -54,12 +64,15 @@ diagnose firewall iprope lookup <src-ip> <src-port> <dst-ip> <dst-port> <protoco
 ```
 
 | Source IP | Source port | Destination IP | Destination port | Protocol | Source interface |
----|---|---|---|---|---|
+|---|---|---|---|---|---|
 | `10.210.14.139` | `0` | `57.144.179.32` | `443` | `6` | `port3` |
 
 Ex.: `diagnose firewall iprope lookup 10.210.14.139 0 57.144.179.32 443 6 port3`
 
-Use `0` as the source port when it doesn't matter. The source interface is where the traffic enters the firewall: a port, a VLAN or a tunnel.
+> [!NOTE]
+> Use **`0`** as the source port when it doesn't matter. The source interface is **where the traffic enters the firewall**: a port, a VLAN or a tunnel.
+
+**Protocol numbers**
 
 | ICMP | TCP | UDP | GRE | ESP |
 |:---:|:---:|:---:|:---:|:---:|
@@ -67,7 +80,19 @@ Use `0` as the source port when it doesn't matter. The source interface is where
 
 ---
 
-## System and status
+## 🔑 Sudo (cross-VDOM commands)
+
+Runs a command in another VDOM **without switching to it**.
+
+**Run a command in another VDOM**
+```fortios
+sudo <vdom> <command>
+```
+Ex.: `sudo FILIAIS get router info routing-table details 10.0.0.1`
+
+---
+
+## 📊 System and status
 
 ### Device info
 
@@ -103,7 +128,7 @@ Ex.: `get system global | grep -i admin`
 
 ### GUI settings
 
-**Show security profile groups in the GUI**
+🟡 **Show security profile groups in the GUI**
 ```fortios
 config system settings
     set gui-security-profile-group enable
@@ -179,28 +204,33 @@ diagnose sys process pidof <process>
 ```
 Ex.: `diagnose sys process pidof fnbamd`
 
-**Restart a process by PID** (signal 11 makes the watchdog respawn it)
+🔴 **Restart a process by PID** (signal 11 makes the watchdog respawn it)
 ```fortios
 diagnose sys kill 11 <pid>
 ```
 Ex.: `diagnose sys kill 11 1834`
 
-**Restart a daemon through its test menu**
+> [!WARNING]
+> **Restarts the process.** Whatever it serves (authentication, IPS, web filter, VPN) stops for a moment. Prefer a maintenance window on production.
+
+🔴 **Restart a daemon through its test menu**
 ```fortios
 diagnose test application <daemon> 99
 ```
 Ex.: `diagnose test application ipsmonitor 99` restarts the IPS engine. `dnsproxy` works the same way.
 
-**Reboot the unit**
+🔴 **Reboot the unit**
 ```fortios
 execute reboot
 ```
 Ex.: `execute reboot`, then answer `y`.
-> ⚠ Last resort. Do it in a maintenance window.
+
+> [!CAUTION]
+> **Last resort.** The unit goes offline until it boots again. Do it in a **maintenance window**.
 
 ---
 
-## Interfaces and hardware
+## 🔌 Interfaces and hardware
 
 ### Interface status
 
@@ -250,7 +280,7 @@ Ex.: `diagnose traffictest run -c 10.11.100.50`
 
 ---
 
-## Routing
+## 🚦 Routing
 
 Full lookup order (policy route, ISDB, SD-WAN, cache, FIB) is in [Route Process](Route%20Process.md).
 
@@ -322,7 +352,7 @@ get router info bgp neighbors <neighbor-ip> advertised-routes
 ```
 Ex.: `get router info bgp neighbors 10.2.0.250 advertised-routes`
 
-**Received routes** (needs `set soft-reconfiguration enable` on the neighbor)
+**Received routes** (**needs** `set soft-reconfiguration enable` on the neighbor)
 ```fortios
 get router info bgp neighbors <neighbor-ip> received-routes
 ```
@@ -362,7 +392,7 @@ Ex.: `get router info routing-table ospf | grep 10.20.`
 
 ---
 
-## ARP
+## 📇 ARP
 
 **Full ARP table**
 ```fortios
@@ -384,7 +414,7 @@ Ex.: `show | grep -f 10.11.100.232`
 
 ---
 
-## Sessions
+## 🔗 Sessions
 
 ### List and stats
 
@@ -402,20 +432,22 @@ Ex.: `diagnose sys session stat | grep -i clash`
 
 ### Filter and clear
 
-**Clear all sessions**
+🔴 **Clear all sessions**
 ```fortios
 diagnose sys session clear
 ```
 Ex.: only after a filter, see the two blocks below.
-> ⚠ Without a filter this drops **every** session on the firewall.
 
-**Delete one session by ID**
+> [!CAUTION]
+> Without a filter this drops **every session** on the firewall. Set a filter first (see the blocks below) and check it with `diagnose sys session filter`.
+
+🟡 **Delete one session by ID**
 ```fortios
 diagnose sys session delete <session-id>
 ```
 Ex.: `diagnose sys session delete 0001a2b3`
 
-**Filter by destination IP, then clear** (one IP or a range)
+🟡 **Filter by destination IP, then clear** (one IP or a range)
 ```fortios
 diagnose sys session filter clear
 diagnose sys session filter dst <first-ip> <last-ip>
@@ -426,7 +458,7 @@ Ex.: `diagnose sys session filter dst 10.3.79.165 10.3.79.185`
 
 Running `filter` with no argument prints the active filter, so you can check it before the `clear`.
 
-**Filter by source IP, then clear**
+🟡 **Filter by source IP, then clear**
 ```fortios
 diagnose sys session filter clear
 diagnose sys session filter src <first-ip> <last-ip>
@@ -437,7 +469,7 @@ Ex.: `diagnose sys session filter src 10.3.79.165 10.3.79.185`
 
 ---
 
-## Ping, traceroute and telnet
+## 📡 Ping, traceroute and telnet
 
 **Simple ping**
 ```fortios
@@ -445,7 +477,7 @@ execute ping <ip-or-fqdn>
 ```
 Ex.: `execute ping 8.8.8.8`
 
-**Ping from a specific source**: must be an IP that belongs to the firewall
+**Ping from a specific source**: must be an IP that **belongs to the firewall**
 ```fortios
 execute ping-options source <interface-ip>
 execute ping <dst-ip>
@@ -479,9 +511,9 @@ Ex.: `execute telnet 10.11.100.232 22`
 
 ---
 
-## Packet sniffer
+## 🔍 Packet sniffer
 
-Syntax: `diagnose sniffer packet <interface> "<filter>" <verbosity> [count] [timestamp]`. `Ctrl+C` stops the capture.
+Syntax: `diagnose sniffer packet <interface> "<filter>" <verbosity> [count] [timestamp]`. **`Ctrl+C`** stops the capture.
 
 | Verbosity | Shows |
 |:---:|---|
@@ -524,11 +556,13 @@ Ex.: `diagnose sniffer packet any "host 201.55.34.141 and host 10.211.12.68" 4`
 
 ---
 
-## Debug flow
+## 🐞 Debug flow
 
-Shows the packet's path inside the firewall: chosen route, matching policy, NAT and the drop reason. The number after `trace start` is how many packets to trace, not a detail level.
+Shows the packet's path inside the firewall: chosen route, matching policy, NAT and the drop reason. 
+> [!NOTE]
+> The number after `trace start` is **how many packets to trace**, not a detail level.
 
-**Basic debug flow**
+🟡 **Basic debug flow**
 ```fortios
 diagnose debug disable
 diagnose debug flow trace stop
@@ -582,9 +616,12 @@ diagnose debug enable
 diagnose debug flow trace stop
 diagnose debug disable
 ```
-Ex.: run it as soon as you have the lines you need; a forgotten trace keeps eating CPU.
+Ex.: run it as soon as you have the lines you need.
 
-**Port-only flow with iprope** (route and policy lookup)
+> [!WARNING]
+> A forgotten trace **keeps eating CPU**. Always stop it before closing the session.
+
+🟡 **Port-only flow with iprope** (route and policy lookup)
 ```fortios
 diagnose debug disable
 diagnose debug flow trace stop
@@ -599,11 +636,11 @@ diagnose debug enable
 ```
 Ex.: same block with `diagnose debug flow filter dport 514` to follow syslog traffic.
 
-To test the policy without traffic, see [Iprope lookup](#iprope-lookup).
+To test the policy without traffic, see [Iprope lookup](#-iprope-lookup).
 
 ---
 
-## NAT
+## 🔄 NAT
 
 **Central SNAT table** (when central NAT is enabled)
 ```fortios
@@ -637,7 +674,7 @@ Ex.: `diagnose firewall ippool-all stats "POOL_INTERNET"`
 
 ---
 
-## Firewall policy
+## 🧱 Firewall policy
 
 **Policies as the kernel sees them** (group 100004 holds the regular IPv4 policies)
 ```fortios
@@ -645,7 +682,7 @@ diagnose firewall iprope list <group>
 ```
 Ex.: `diagnose firewall iprope list 100004 | grep -A 5 "index=956"`
 
-**Move a rule**
+🟡 **Move a rule**
 ```fortios
 config firewall policy
     move <id> before <reference-id>
@@ -655,11 +692,11 @@ Ex.: `move 956 before 905`
 
 ---
 
-## VPN
+## 🔐 VPN
 
 ### IPsec (site-to-site)
 
-**Debug IKE negotiation**
+🟡 **Debug IKE negotiation**
 ```fortios
 diagnose debug disable
 diagnose debug reset
@@ -706,22 +743,27 @@ diagnose vpn tunnel stat
 ```
 Ex.: `diagnose vpn tunnel stat` right after a change, to see if the tunnel count dropped.
 
-**Reset phase 1** (renegotiates the whole tunnel)
+🔴 **Reset phase 1** (renegotiates the whole tunnel)
 ```fortios
 diagnose vpn ike gateway clear name "<vpn-name>"
 ```
 Ex.: `diagnose vpn ike gateway clear name "VPN_DC-01"`
-> ⚠ Drops the tunnel until it renegotiates.
 
-**Flush phase 2 SAs**
+> [!WARNING]
+> **Drops the tunnel.** Traffic over it stops until it renegotiates.
+
+🔴 **Flush phase 2 SAs**
 ```fortios
 diagnose vpn tunnel flush "<vpn-name>"
 ```
 Ex.: `diagnose vpn tunnel flush "VPN_DC-01"`
 
+> [!WARNING]
+> **Tears down the phase 2 SAs.** Traffic over the tunnel stops until they are renegotiated.
+
 ### SSL-VPN
 
-**General debug**
+🟡 **General debug**
 ```fortios
 diagnose debug reset
 diagnose debug application fnbamd 255
@@ -735,11 +777,14 @@ execute vpn sslvpn list
 ```
 Ex.: `execute vpn sslvpn list`, then pick the index to drop with `execute vpn sslvpn del-tunnel <index>`.
 
-**Drop every SSL-VPN session**
+🔴 **Drop every SSL-VPN session**
 ```fortios
 execute vpn sslvpn del-all
 ```
 Ex.: `execute vpn sslvpn del-all` after changing the SSL-VPN portal, so users reconnect with the new settings.
+
+> [!WARNING]
+> **Disconnects every SSL-VPN user** at once.
 
 **Live monitor** (user, source IP, tunnel IP, duration)
 ```fortios
@@ -755,11 +800,11 @@ Ex.: `diagnose vpn ssl statistics | grep -i max`
 
 ---
 
-## Authentication
+## 👤 Authentication
 
 ### Local and SSL-VPN users
 
-**Local user and password debug**
+🟡 **Local user and password debug**
 ```fortios
 diagnose debug reset
 diagnose debug console timestamp enable
@@ -770,7 +815,7 @@ diagnose debug enable
 ```
 Ex.: add `diagnose vpn ssl debug-filter src-addr4 <user-ip>` before `enable` to keep only one user in the output.
 
-**SSL-VPN with SAML**
+🟡 **SSL-VPN with SAML**
 ```fortios
 diagnose vpn ssl debug-filter src-addr4 <user-ip>
 diagnose debug application samld -1
@@ -781,7 +826,7 @@ Ex.: `diagnose vpn ssl debug-filter src-addr4 189.40.12.7`
 
 ### SAML
 
-**SAML authentication debug**
+🟡 **SAML authentication debug**
 ```fortios
 diagnose debug application httpsd -1
 diagnose debug application samld -1
@@ -792,7 +837,7 @@ Ex.: run the block, log in through the IdP once, and look for the `samld` assert
 
 ### FSSO
 
-**FSSO collector status**
+🟡 **FSSO collector status**
 ```fortios
 diagnose debug enable
 diagnose debug authd fsso server-status
@@ -801,7 +846,7 @@ Ex.: `diagnose debug authd fsso server-status | grep -i connected`
 
 ### FortiClient EMS
 
-**EMS connector debug** (fabric connector to EMS)
+🟡 **EMS connector debug** (fabric connector to EMS)
 ```fortios
 diagnose debug application fcnacd -1
 diagnose debug console timestamp enable
@@ -817,9 +862,10 @@ Ex.: `execute fctems verify EMS01`
 
 ---
 
-## DNS
+## 🌐 DNS
 
-FortiGate has no `nslookup`. Resolve names with `execute ping` and check the resolver with the `dnsproxy` commands.
+> [!NOTE]
+> FortiGate has **no `nslookup`**. Resolve names with `execute ping` and check the resolver with the `dnsproxy` commands.
 
 **DNS servers in use**
 ```fortios
@@ -833,7 +879,7 @@ execute ping <fqdn>
 ```
 Ex.: `execute ping update.fortiguard.net`
 
-**DNS proxy debug**
+🟡 **DNS proxy debug**
 ```fortios
 diagnose debug application dnsproxy -1
 diagnose debug console timestamp enable
@@ -855,9 +901,9 @@ Ex.: `diagnose test application dnsproxy 6 | grep -i microsoft`
 
 ---
 
-## DHCP
+## 📬 DHCP
 
-**DHCP server debug**
+🟡 **DHCP server debug**
 ```fortios
 diagnose debug reset
 diagnose debug application dhcps -1
@@ -874,7 +920,7 @@ Ex.: run it once the client has its lease.
 
 ---
 
-## Web filter and security profiles
+## 🚫 Web filter and security profiles
 
 ### FortiGuard
 
@@ -893,7 +939,7 @@ get webfilter status
 ```
 Ex.: `get webfilter status | grep -i "license"`
 
-**Update debug** (signature and database downloads)
+🟡 **Update debug** (signature and database downloads)
 ```fortios
 diagnose debug application update -1
 diagnose debug enable
@@ -924,7 +970,7 @@ show webfilter profile [<profile>]
 ```
 Ex.: `show webfilter profile "default"`
 
-**Create a URL filter table**
+🟡 **Create a URL filter table**
 
 `edit 0` takes the next free ID. Use `set type wildcard` when the URL has `*`; an exact URL keeps the default type.
 ```fortios
@@ -1010,7 +1056,7 @@ show webfilter urlfilter [<id>]
 ```
 Ex.: `show webfilter urlfilter 3`
 
-**Attach the table to a profile**
+🟡 **Attach the table to a profile**
 ```fortios
 config webfilter profile
     edit "<profile>"
@@ -1032,9 +1078,9 @@ Ex.: `diagnose autoupdate versions | grep -i -A 4 "IPS Attack Engine"`
 
 ---
 
-## Logging
+## 📝 Logging
 
-**Logging daemon debug** (miglogd handles disk, FortiAnalyzer and syslog output)
+🟡 **Logging daemon debug** (miglogd handles disk, FortiAnalyzer and syslog output)
 ```fortios
 diagnose debug application miglogd -1
 diagnose debug enable
@@ -1068,7 +1114,7 @@ Ex.: `execute log filter reset` before building a new filter, so old fields don'
 
 ---
 
-## HA (high availability)
+## 🔁 HA (high availability)
 
 **HA status**
 ```fortios
@@ -1082,18 +1128,20 @@ execute ha manage <member-id> <user>
 ```
 Ex.: `execute ha manage 0 jusantos`
 
-**Set node priority**
+🟡 **Set node priority**
 ```fortios
 execute ha set-priority <serial> <priority>
 ```
 Ex.: `execute ha set-priority FG4H0E5819900156 151`
 
-**Reset HA uptime** (forces a new election)
+🔴 **Reset HA uptime** (forces a new election)
 ```fortios
 diagnose sys ha reset-uptime
 ```
 Ex.: `diagnose sys ha reset-uptime` on the primary when `override` is off and you need the other node to take over.
-> ⚠ Can trigger a failover. Do it in a maintenance window.
+
+> [!CAUTION]
+> **Can trigger a failover.** Do it in a **maintenance window**.
 
 **Config checksum on every member** (out-of-sync check)
 ```fortios
@@ -1115,9 +1163,9 @@ Ex.: `diagnose sys ha dump-by vcluster | grep -i state`
 
 ---
 
-## SD-WAN and link monitor
+## 📶 SD-WAN and link monitor
 
-**Create a link monitor probe**
+🟡 **Create a link monitor probe**
 
 `gateway-ip` is the next hop; `server` is the IP being tested.
 ```fortios
@@ -1158,7 +1206,7 @@ diagnose sys sdwan health-check [<name>]
 ```
 Ex.: `diagnose sys sdwan health-check "Default_DNS"`
 
-**SD-WAN rules and the member each one picked** (`service` before 7.4.4)
+**SD-WAN rules and the member each one picked** (**`service` before 7.4.4**)
 ```fortios
 diagnose sys sdwan service4 [<rule-id>]
 ```
@@ -1166,9 +1214,9 @@ Ex.: `diagnose sys sdwan service4 1`
 
 ---
 
-## Automation stitch
+## 🤖 Automation stitch
 
-**Debug a stitch that doesn't fire**
+🟡 **Debug a stitch that doesn't fire**
 ```fortios
 diagnose debug reset
 diagnose debug application autod -1
@@ -1179,11 +1227,15 @@ Ex.: start the block, then cause the event the trigger waits for (an admin login
 
 ---
 
-## REST API
+## 🧩 REST API
 
-**Show an IPsec PSK in plain text (phase1-interface)**
+🔴 **Show an IPsec PSK in plain text (phase1-interface)**
 
-You must be logged in to the GUI in the same browser.
+You must be logged in to the GUI in the **same browser**.
+
+> [!CAUTION]
+> This **reveals the pre-shared key in clear text**. Don't paste the output into tickets or chats, and clear it from the screen and browser history afterwards.
+
 ```
 https://<firewall-ip>:<admin-port>/api/v2/cmdb/vpn.ipsec/phase1-interface/<vpn-name>?plain-text-password=1
 ```
@@ -1192,13 +1244,3 @@ Ex.:
 https://192.168.253.253:11443/api/v2/cmdb/vpn.ipsec/phase1-interface/VPN_DC-01?plain-text-password=1
 https://192.168.1.99:11443/api/v2/cmdb/vpn.ipsec/phase1-interface/VPN_DC-WCS?plain-text-password=1
 ```
-
----
-
-## Sudo (cross-VDOM commands)
-
-Runs a command in another VDOM without switching to it.
-```fortios
-sudo <vdom> <command>
-```
-Ex.: `sudo FILIAIS get router info routing-table details 10.0.0.1`
