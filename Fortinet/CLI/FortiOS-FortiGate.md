@@ -22,37 +22,30 @@ No icon means **read only**, safe to run.
 
 ## Index
 
-- [🎯 Iprope lookup](#-iprope-lookup)
-- [🔑 Sudo (cross-VDOM commands)](#-sudo-cross-vdom-commands)
-- [📊 System and status](#-system-and-status)
-  - [Device info](#device-info) · [GUI settings](#gui-settings) · [Crash and error logs](#crash-and-error-logs) · [CPU and memory](#cpu-and-memory) · [Restarting processes](#restarting-processes)
-- [🔌 Interfaces and hardware](#-interfaces-and-hardware)
-  - [Interface status](#interface-status) · [NIC and throughput](#nic-and-throughput)
-- [🚦 Routing](#-routing)
-  - [Route lookup](#route-lookup) · [Static](#static) · [Policy routes](#policy-routes) · [BGP](#bgp) · [OSPF](#ospf)
-- [📇 ARP](#-arp)
-- [🔗 Sessions](#-sessions)
-  - [List and stats](#list-and-stats) · [Filter and clear](#filter-and-clear)
-- [📡 Ping, traceroute and telnet](#-ping-traceroute-and-telnet)
-- [🔍 Packet sniffer](#-packet-sniffer)
-- [🐞 Debug flow](#-debug-flow)
-- [🔄 NAT](#-nat)
-- [🧱 Firewall policy](#-firewall-policy)
-- [🔐 VPN](#-vpn)
-  - [IPsec (site-to-site)](#ipsec-site-to-site) · [SSL-VPN](#ssl-vpn)
-- [👤 Authentication](#-authentication)
-  - [Local and SSL-VPN users](#local-and-ssl-vpn-users) · [SAML](#saml) · [FSSO](#fsso) · [FortiClient EMS](#forticlient-ems)
-- [🌐 DNS](#-dns)
-- [📬 DHCP](#-dhcp)
-- [🚫 Web filter and security profiles](#-web-filter-and-security-profiles)
-  - [FortiGuard](#fortiguard) · [Web filter logs](#web-filter-logs) · [URL filter](#url-filter) · [Security profile engines](#security-profile-engines)
-- [📝 Logging](#-logging)
-- [🔁 HA (high availability)](#-ha-high-availability)
-- [📶 SD-WAN and link monitor](#-sd-wan-and-link-monitor)
-- [🤖 Automation stitch](#-automation-stitch)
-- [🧩 REST API](#-rest-api)
-
-📖 Companion doc: [Route Process](Route%20Process.md) explains the order in which FortiGate picks a route.
+| Section | Jump to |
+|---|---|
+| [🎯 Iprope lookup](#-iprope-lookup) |  |
+| [🔑 Sudo (cross-VDOM commands)](#-sudo-cross-vdom-commands) |  |
+| [📊 System and status](#-system-and-status) | [Device info](#device-info) · [GUI settings](#gui-settings) · [Crash and error logs](#crash-and-error-logs) · [CPU and memory](#cpu-and-memory) · [Restarting processes](#restarting-processes) |
+| [🔌 Interfaces and hardware](#-interfaces-and-hardware) | [Interface status](#interface-status) · [NIC and throughput](#nic-and-throughput) |
+| [🚦 Routing](#-routing) | [Route lookup](#route-lookup) · [Static](#static) · [Policy routes](#policy-routes) · [BGP](#bgp) · [OSPF](#ospf) |
+| [📇 ARP](#-arp) |  |
+| [🔗 Sessions](#-sessions) | [List and stats](#list-and-stats) · [Filter and clear](#filter-and-clear) |
+| [📡 Ping, traceroute and telnet](#-ping-traceroute-and-telnet) |  |
+| [🔍 Packet sniffer](#-packet-sniffer) |  |
+| [🐞 Debug flow](#-debug-flow) |  |
+| [🔄 NAT](#-nat) |  |
+| [🧱 Firewall policy](#-firewall-policy) |  |
+| [🔐 VPN](#-vpn) | [IPsec (site-to-site)](#ipsec-site-to-site) · [SSL-VPN](#ssl-vpn) |
+| [👤 Authentication](#-authentication) | [Local and SSL-VPN users](#local-and-ssl-vpn-users) · [SAML](#saml) · [FSSO](#fsso) · [FortiClient EMS](#forticlient-ems) |
+| [🌐 DNS](#-dns) |  |
+| [📬 DHCP](#-dhcp) |  |
+| [🚫 Web filter and security profiles](#-web-filter-and-security-profiles) | [FortiGuard](#fortiguard) · [Web filter logs](#web-filter-logs) · [URL filter](#url-filter) · [Security profile engines](#security-profile-engines) |
+| [📝 Logging](#-logging) |  |
+| [🔁 HA (high availability)](#-ha-high-availability) |  |
+| [📶 SD-WAN and link monitor](#-sd-wan-and-link-monitor) |  |
+| [🤖 Automation stitch](#-automation-stitch) |  |
+| [🧩 REST API](#-rest-api) |  |
 
 ---
 
@@ -281,8 +274,6 @@ Ex.: `diagnose traffictest run -c 10.11.100.50`
 ---
 
 ## 🚦 Routing
-
-Full lookup order (policy route, ISDB, SD-WAN, cache, FIB) is in [Route Process](Route%20Process.md).
 
 ### Route lookup
 
@@ -558,7 +549,8 @@ Ex.: `diagnose sniffer packet any "host 201.55.34.141 and host 10.211.12.68" 4`
 
 ## 🐞 Debug flow
 
-Shows the packet's path inside the firewall: chosen route, matching policy, NAT and the drop reason. 
+Shows the packet's path inside the firewall: chosen route, matching policy, NAT and the drop reason.
+
 > [!NOTE]
 > The number after `trace start` is **how many packets to trace**, not a detail level.
 
@@ -635,8 +627,6 @@ diagnose debug flow trace start 999999
 diagnose debug enable
 ```
 Ex.: same block with `diagnose debug flow filter dport 514` to follow syslog traffic.
-
-To test the policy without traffic, see [Iprope lookup](#-iprope-lookup).
 
 ---
 
@@ -1223,7 +1213,6 @@ diagnose debug application autod -1
 diagnose debug enable
 ```
 Ex.: start the block, then cause the event the trigger waits for (an admin login, for instance).
-> Reference: [Fortinet Community: how to check why automation stitch is not working](https://community.fortinet.com/fortigate-3/technical-tip-how-to-check-why-automation-stitch-is-not-working-as-expected-92733)
 
 ---
 
