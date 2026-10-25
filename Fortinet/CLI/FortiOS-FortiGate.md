@@ -53,9 +53,9 @@ Companion doc: [Route Process](Route%20Process.md) explains the order in which F
 diagnose firewall iprope lookup <src-ip> <src-port> <dst-ip> <dst-port> <protocol> <src-interface>
 ```
 
-| Command | Source IP | Source port | Destination IP | Destination port | Protocol | Source interface |
-|---|---|---|---|---|---|---|
-| `diagnose firewall iprope lookup` | `10.210.14.139` | `0` | `57.144.179.32` | `443` | `6` | `port3` |
+| Source IP | Source port | Destination IP | Destination port | Protocol | Source interface |
+---|---|---|---|---|---|
+| `10.210.14.139` | `0` | `57.144.179.32` | `443` | `6` | `port3` |
 
 Ex.: `diagnose firewall iprope lookup 10.210.14.139 0 57.144.179.32 443 6 port3`
 
