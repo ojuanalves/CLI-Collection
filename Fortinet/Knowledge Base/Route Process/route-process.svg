@@ -1,0 +1,200 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1080" width="1200" height="1080" font-family="Segoe UI, system-ui, -apple-system, Helvetica, Arial, sans-serif">
+  <title>FortiGate route lookup process</title>
+  <style>
+    .flow { fill: none; stroke-width: 3; stroke-dasharray: 10 8; animation: dash 1.2s linear infinite; }
+    .nomatch { stroke: #94a3b8; }
+    .match { stroke: #4ade80; }
+    .stop { stroke: #fb923c; }
+    .feed { stroke: #38bdf8; }
+    .drop { stroke: #f87171; }
+    .lbl { font-size: 15px; font-weight: 600; }
+    .cmd { font-family: Consolas, Menlo, "DejaVu Sans Mono", monospace; font-size: 14px; fill: #e2e8f0; }
+    .node { font-size: 17px; font-weight: 700; fill: #0f172a; text-anchor: middle; }
+    .small { font-size: 12px; font-weight: 600; fill: #1e293b; text-anchor: middle; }
+    .pulse { animation: pulse 2.4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+    .pulse2 { animation-delay: .6s; } .pulse3 { animation-delay: 1.2s; } .pulse4 { animation-delay: 1.8s; }
+    @keyframes dash { to { stroke-dashoffset: -36; } }
+    @keyframes pulse { 0%,100% { opacity: .35; transform: scale(1); } 50% { opacity: .9; transform: scale(1.06); } }
+  </style>
+  <defs>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <marker id="aGray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/></marker>
+    <marker id="aGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4ade80"/></marker>
+    <marker id="aOrange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fb923c"/></marker>
+    <marker id="aBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#38bdf8"/></marker>
+    <marker id="aRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f87171"/></marker>
+    <marker id="aNote" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#cbd5e1"/></marker>
+    <linearGradient id="gStart" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ddd6fe"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
+    <linearGradient id="gPR" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a5f3fc"/><stop offset="1" stop-color="#22d3ee"/></linearGradient>
+    <linearGradient id="gISDB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#99f6e4"/><stop offset="1" stop-color="#2dd4bf"/></linearGradient>
+    <linearGradient id="gSDWAN" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fde68a"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="gAction" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fed7aa"/><stop offset="1" stop-color="#fb923c"/></linearGradient>
+    <linearGradient id="gCache" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#bfdbfe"/><stop offset="1" stop-color="#60a5fa"/></linearGradient>
+    <linearGradient id="gFIB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c7d2fe"/><stop offset="1" stop-color="#818cf8"/></linearGradient>
+    <linearGradient id="gTable" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#bae6fd"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="gSrc" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f5d0fe"/><stop offset="1" stop-color="#c084fc"/></linearGradient>
+    <linearGradient id="gFwd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#bbf7d0"/><stop offset="1" stop-color="#4ade80"/></linearGradient>
+    <linearGradient id="gDrop" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fecaca"/><stop offset="1" stop-color="#f87171"/></linearGradient>
+
+    <!-- packet paths -->
+    <path id="p1" d="M130 170 H1080"/>
+    <path id="p2" d="M130 170 H790 V555 H490 V640 H1080 V170"/>
+    <path id="p3" d="M130 170 H490 V320 H1080 V170"/>
+    <path id="p4" d="M130 170 H490 V470 H1080 V170"/>
+    <path id="p5" d="M130 170 H490 V820 H1080 V170"/>
+    <path id="p6" d="M130 170 H490 V965"/>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="1080" rx="24" fill="#0f172a"/>
+  <text x="40" y="52" font-size="28" font-weight="800" fill="#f8fafc">FortiGate route lookup process</text>
+  <text x="40" y="78" font-size="14" fill="#94a3b8">Runs on the first packet of a session and again on the first reply packet</text>
+
+  <!-- policy routing stage box -->
+  <rect x="355" y="100" width="270" height="440" rx="16" fill="#1e293b" fill-opacity=".55" stroke="#64748b" stroke-width="2" stroke-dasharray="8 6"/>
+  <text x="340" y="272" font-size="13" font-weight="700" fill="#cbd5e1" text-anchor="end" letter-spacing="1">POLICY ROUTING</text>
+  <text x="340" y="290" font-size="13" font-weight="700" fill="#cbd5e1" text-anchor="end" letter-spacing="1">STAGE</text>
+
+  <!-- annotations -->
+  <text x="40" y="330" class="cmd">diagnose firewall proute list</text>
+  <path d="M292 325 H350" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="5 5" fill="none" marker-end="url(#aNote)"/>
+  <text x="40" y="645" class="cmd">diagnose ip rtcache list</text>
+  <path d="M250 640 H374" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="5 5" fill="none" marker-end="url(#aNote)"/>
+  <text x="40" y="770" class="cmd">get router info routing-table all</text>
+  <text x="625" y="895" class="cmd">get router info kernel</text>
+  <path d="M620 890 Q580 890 560 858" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="5 5" fill="none" marker-end="url(#aNote)"/>
+
+  <!-- edges: no match chain -->
+  <path class="flow nomatch" d="M225 170 H378" marker-end="url(#aGray)"/>
+  <path class="flow nomatch" d="M490 225 V262" marker-end="url(#aGray)"/>
+  <path class="flow nomatch" d="M490 375 V412" marker-end="url(#aGray)"/>
+  <path class="flow nomatch" d="M490 525 V582" marker-end="url(#aGray)"/>
+  <path class="flow nomatch" d="M490 695 V762" marker-end="url(#aGray)"/>
+  <path class="flow drop" d="M490 875 V932" marker-end="url(#aRed)"/>
+  <text x="500" y="250" class="lbl" fill="#cbd5e1">No match</text>
+  <text x="500" y="400" class="lbl" fill="#cbd5e1">No match</text>
+  <text x="480" y="577" class="lbl" fill="#cbd5e1" text-anchor="end">No match</text>
+  <text x="500" y="735" class="lbl" fill="#cbd5e1">No match</text>
+  <text x="500" y="912" class="lbl" fill="#fca5a5">No match</text>
+
+  <!-- edges: matches -->
+  <path class="flow match" d="M600 170 H692" marker-end="url(#aGreen)"/>
+  <text x="618" y="160" class="lbl" fill="#86efac">Match</text>
+  <path class="flow match" d="M885 170 H997" marker-end="url(#aGreen)"/>
+  <text x="900" y="194" class="lbl" fill="#86efac">Forward</text>
+  <text x="900" y="212" class="lbl" fill="#86efac">traffic</text>
+  <path class="flow match" d="M600 320 H780 a10 10 0 0 1 20 0 H1080"/>
+  <text x="618" y="310" class="lbl" fill="#86efac">Match</text>
+  <path class="flow match" d="M600 470 H780 a10 10 0 0 1 20 0 H1080"/>
+  <text x="618" y="460" class="lbl" fill="#86efac">Match, forward now</text>
+  <path class="flow match" d="M600 640 H1080"/>
+  <text x="618" y="630" class="lbl" fill="#86efac">Match</text>
+  <path class="flow match" d="M600 820 H1080"/>
+  <text x="618" y="810" class="lbl" fill="#86efac">Match</text>
+  <path class="flow match" d="M1080 820 V208" marker-end="url(#aGreen)"/>
+  <circle cx="1080" cy="320" r="5" fill="#4ade80"/>
+  <circle cx="1080" cy="470" r="5" fill="#4ade80"/>
+  <circle cx="1080" cy="640" r="5" fill="#4ade80"/>
+  <circle cx="1080" cy="820" r="5" fill="#4ade80"/>
+
+  <!-- edge: stop policy routing -->
+  <path class="flow stop" d="M790 225 V555 H495" marker-end="url(#aOrange)"/>
+  <text x="802" y="390" class="lbl" fill="#fdba74">Stop policy</text>
+  <text x="802" y="408" class="lbl" fill="#fdba74">routing</text>
+
+  <!-- edges: RIB feeding FIB -->
+  <path class="flow feed" d="M230 902 V853" marker-end="url(#aBlue)"/>
+  <path class="flow feed" d="M310 820 H377" marker-end="url(#aBlue)"/>
+
+  <!-- nodes -->
+  <ellipse class="pulse" cx="130" cy="170" rx="104" ry="56" fill="none" stroke="#a78bfa" stroke-width="3"/>
+  <ellipse cx="130" cy="170" rx="95" ry="48" fill="url(#gStart)"/>
+  <text x="130" y="165" class="node">Start of</text>
+  <text x="130" y="186" class="node">route lookup</text>
+
+  <polygon class="pulse" points="490,108 610,170 490,232 370,170" fill="none" stroke="#22d3ee" stroke-width="3"/>
+  <polygon points="490,115 600,170 490,225 380,170" fill="url(#gPR)"/>
+  <text x="490" y="166" class="node">Regular</text>
+  <text x="490" y="186" class="node">policy route</text>
+
+  <polygon class="pulse pulse2" points="490,258 610,320 490,382 370,320" fill="none" stroke="#2dd4bf" stroke-width="3"/>
+  <polygon points="490,265 600,320 490,375 380,320" fill="url(#gISDB)"/>
+  <text x="490" y="326" class="node">ISDB route</text>
+
+  <polygon class="pulse pulse3" points="490,408 610,470 490,532 370,470" fill="none" stroke="#fbbf24" stroke-width="3"/>
+  <polygon points="490,415 600,470 490,525 380,470" fill="url(#gSDWAN)"/>
+  <text x="490" y="476" class="node">SD-WAN rule</text>
+
+  <polygon points="790,115 885,170 790,225 695,170" fill="url(#gAction)"/>
+  <text x="790" y="176" class="node">Action</text>
+
+  <polygon class="pulse pulse4" points="490,578 610,640 490,702 370,640" fill="none" stroke="#60a5fa" stroke-width="3"/>
+  <polygon points="490,585 600,640 490,695 380,640" fill="url(#gCache)"/>
+  <text x="490" y="646" class="node">Route cache</text>
+
+  <polygon class="pulse" points="490,758 610,820 490,882 370,820" fill="none" stroke="#818cf8" stroke-width="3"/>
+  <polygon points="490,765 600,820 490,875 380,820" fill="url(#gFIB)"/>
+  <text x="490" y="820" class="node">FIB</text>
+  <text x="490" y="839" class="small">kernel routes</text>
+
+  <rect x="150" y="790" width="160" height="60" rx="10" fill="url(#gTable)"/>
+  <text x="230" y="814" class="node">Routing table</text>
+  <text x="230" y="834" class="small">RIB</text>
+
+  <ellipse cx="230" cy="950" rx="120" ry="48" fill="url(#gSrc)"/>
+  <text x="230" y="934" class="small" font-size="14">Connected routes</text>
+  <text x="230" y="954" class="small" font-size="14">Static routes</text>
+  <text x="230" y="974" class="small" font-size="14">Dynamic routes</text>
+
+  <rect class="pulse" x="994" y="129" width="172" height="82" rx="14" fill="none" stroke="#4ade80" stroke-width="3"/>
+  <rect x="1000" y="135" width="160" height="70" rx="10" fill="url(#gFwd)"/>
+  <text x="1080" y="176" class="node">Forward packet</text>
+
+  <rect x="410" y="935" width="160" height="60" rx="10" fill="url(#gDrop)"/>
+  <text x="490" y="962" class="node">Drop packet</text>
+  <text x="490" y="981" class="small">unroutable</text>
+
+  <!-- legend -->
+  <rect x="640" y="925" width="525" height="130" rx="12" fill="#1e293b" stroke="#334155"/>
+  <text x="660" y="950" font-size="13" font-weight="700" fill="#cbd5e1" letter-spacing="1">ANIMATED PACKETS, ONE PER SCENARIO</text>
+  <g font-size="13" fill="#e2e8f0">
+    <circle cx="668" cy="972" r="7" fill="#22d3ee"/><text x="684" y="977">Policy route, forward</text>
+    <circle cx="668" cy="997" r="7" fill="#fb923c"/><text x="684" y="1002">Policy route, stop routing</text>
+    <circle cx="668" cy="1022" r="7" fill="#2dd4bf"/><text x="684" y="1027">ISDB route match</text>
+    <circle cx="910" cy="972" r="7" fill="#fbbf24"/><text x="926" y="977">SD-WAN rule match</text>
+    <circle cx="910" cy="997" r="7" fill="#818cf8"/><text x="926" y="1002">FIB match</text>
+    <circle cx="910" cy="1022" r="7" fill="#f87171"/><text x="926" y="1027">No route, dropped</text>
+  </g>
+  <text x="660" y="1045" font-size="11" fill="#94a3b8">Dashed lines flow in the direction the lookup moves.</text>
+
+  <!-- packets (12s cycle, 2s stagger) -->
+  <g filter="url(#glow)">
+    <circle r="9" fill="#22d3ee" opacity="0">
+      <animateMotion dur="12s" begin="0s" repeatCount="indefinite" keyPoints="0;1;1" keyTimes="0;0.4;1" calcMode="linear"><mpath href="#p1"/></animateMotion>
+      <animate attributeName="opacity" dur="12s" begin="0s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;0.02;0.38;0.42;1"/>
+    </circle>
+    <circle r="9" fill="#fb923c" opacity="0">
+      <animateMotion dur="12s" begin="2s" repeatCount="indefinite" keyPoints="0;1;1" keyTimes="0;0.55;1" calcMode="linear"><mpath href="#p2"/></animateMotion>
+      <animate attributeName="opacity" dur="12s" begin="2s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;0.02;0.53;0.57;1"/>
+    </circle>
+    <circle r="9" fill="#2dd4bf" opacity="0">
+      <animateMotion dur="12s" begin="4s" repeatCount="indefinite" keyPoints="0;1;1" keyTimes="0;0.45;1" calcMode="linear"><mpath href="#p3"/></animateMotion>
+      <animate attributeName="opacity" dur="12s" begin="4s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;0.02;0.43;0.47;1"/>
+    </circle>
+    <circle r="9" fill="#fbbf24" opacity="0">
+      <animateMotion dur="12s" begin="6s" repeatCount="indefinite" keyPoints="0;1;1" keyTimes="0;0.5;1" calcMode="linear"><mpath href="#p4"/></animateMotion>
+      <animate attributeName="opacity" dur="12s" begin="6s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;0.02;0.48;0.52;1"/>
+    </circle>
+    <circle r="9" fill="#818cf8" opacity="0">
+      <animateMotion dur="12s" begin="8s" repeatCount="indefinite" keyPoints="0;1;1" keyTimes="0;0.6;1" calcMode="linear"><mpath href="#p5"/></animateMotion>
+      <animate attributeName="opacity" dur="12s" begin="8s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;0.02;0.58;0.62;1"/>
+    </circle>
+    <circle r="9" fill="#f87171" opacity="0">
+      <animateMotion dur="12s" begin="10s" repeatCount="indefinite" keyPoints="0;1;1" keyTimes="0;0.4;1" calcMode="linear"><mpath href="#p6"/></animateMotion>
+      <animate attributeName="opacity" dur="12s" begin="10s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;0.02;0.38;0.46;1"/>
+      <animate attributeName="r" dur="12s" begin="10s" repeatCount="indefinite" values="9;9;18;0;0" keyTimes="0;0.38;0.42;0.46;1"/>
+    </circle>
+  </g>
+</svg>
