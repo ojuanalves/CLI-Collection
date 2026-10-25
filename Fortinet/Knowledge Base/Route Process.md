@@ -17,7 +17,7 @@ This is also why a "fixed" route sometimes seems to do nothing: the old session 
 
 ## Flowchart
 
-![FortiGate route lookup process](route-process.svg)
+![FortiGate route lookup process](../../assets/route-process.svg)
 
 The image is an animated SVG. GitHub, GitLab, VS Code preview and most browsers play it. Each colored dot is one packet taking one possible path, and the dashed lines move in the direction the lookup runs.
 
