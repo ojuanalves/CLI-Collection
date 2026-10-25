@@ -13,7 +13,7 @@ Each document is meant to be opened in the middle of an incident: find the sympt
 - [Rendering notes](#rendering-notes)
 - [Safe use](#safe-use)
 - [Adding or fixing a command](#adding-or-fixing-a-command)
-- [Sources and credits](#sources-and-credits)
+- [Credits](#credits)
 - [Disclaimer and rights](#disclaimer-and-rights)
 
 ## What this repository is
@@ -127,30 +127,22 @@ Rules that keep the documents consistent:
 - Write descriptions in English, in plain sentences.
 - Add 🔴 or 🟡 to the label if the command is disruptive or changes state, and add an alert box that says what happens.
 - Name the version if the command is not available everywhere.
-- Say where the command comes from. See the next section.
-- Avoid copying long passages from vendor documentation. Link to the source instead.
+- Respect the credits: the commands belong to their original authors and vendors.
+- Avoid copying long passages from vendor documentation.
 
 If you find a command that no longer works or behaves differently on your version, open an issue with the product, the version, the command and what you saw.
 
-## Sources and credits
+## Credits
 
 The commands in this repository come from the sources made available to the project: vendor documentation, vendor knowledge base articles, community cheat sheets and field notes. The repository only groups them. It does not claim authorship of the underlying commands or of the vendors' documentation.
 
-Sources used so far for the Fortinet documents:
-
-- [Technical Tip: Routing in FortiGate (route-lookup-process)](https://community.fortinet.com/fortigate-3/technical-tip-routing-in-fortigate-route-lookup-process-96148), Fortinet Community
-- [Technical Tip: How to check why automation stitch is not working as expected](https://community.fortinet.com/fortigate-3/technical-tip-how-to-check-why-automation-stitch-is-not-working-as-expected-92733), Fortinet Community
-- [Fortinet Document Library](https://docs.fortinet.com/), FortiOS administration guides and CLI reference
-- [Fortinet Community knowledge base](https://community.fortinet.com/knowledge-base), articles on SD-WAN, DNS, IP pools and VPN diagnostics
-- A FortiGate troubleshooting cheat sheet and field notes shared with the project
-
-This list is not exhaustive. Where a document leans on a specific article, it links to it.
+Credit for the commands and for the documentation they come from belongs to their original authors and to the vendors that publish them.
 
 ## Disclaimer and rights
 
 **All rights belong to the owners of each manufacturer, vendor and product.** Fortinet, FortiGate, FortiOS, FortiClient, FortiGuard, Microsoft, Windows, PowerShell, Linux and every other product name, logo and trademark mentioned here belong to their respective owners. This repository is not affiliated with, endorsed by or sponsored by any of them.
 
-**The commands were taken from the sources made available, listed above. This repository only groups and organizes them.** It does not create the commands, and it does not own the content of the documentation they come from.
+**The commands were taken from the sources made available to the project. This repository only groups and organizes them.** It does not create the commands, and it does not own the content of the documentation they come from.
 
 **There is no responsibility for changes made to your environment.** Commands can interrupt traffic, drop sessions, restart services, change configuration or expose sensitive data. The content is provided as is, without warranty of any kind, and it may be incomplete, outdated or wrong for your version.
 
