@@ -1233,3 +1233,77 @@ Ex.:
 https://192.168.253.253:11443/api/v2/cmdb/vpn.ipsec/phase1-interface/VPN_DC-01?plain-text-password=1
 https://192.168.1.99:11443/api/v2/cmdb/vpn.ipsec/phase1-interface/VPN_DC-WCS?plain-text-password=1
 ```
+
+## 🔁 Firmware Upgrade
+
+```
+##Status -------------------------------------------------------------------------------------------
+get system status
+
+##Performance --------------------------------------------------------------------------------------
+get system performance status
+
+##Top Processes ------------------------------------------------------------------------------------
+diagnose sys top 5 20 3
+
+##HA Status ----------------------------------------------------------------------------------------
+get system ha status
+
+##HA Checksum --------------------------------------------------------------------------------------
+diagnose sys ha showcsum
+
+##Session Count ------------------------------------------------------------------------------------
+get system session status
+
+##Session Statistics -------------------------------------------------------------------------------
+diagnose sys session stat
+
+##Routing Table ------------------------------------------------------------------------------------
+get router info routing-table all
+
+##Physical Interfaces ------------------------------------------------------------------------------
+get system interface physical
+
+##FortiGuard Services ------------------------------------------------------------------------------
+get system fortiguard-service status
+
+##Signature Versions -------------------------------------------------------------------------------
+diagnose autoupdate versions
+
+##Crashlog -----------------------------------------------------------------------------------------
+diagnose debug crashlog read
+
+##Event Log Filter ---------------------------------------------------------------------------------
+execute log filter category event
+
+##Event Log Display --------------------------------------------------------------------------------
+execute log display
+
+##SD-WAN Health Check ------------------------------------------------------------------------------
+diagnose sys sdwan health-check
+
+##Virtual WAN Link Health Check --------------------------------------------------------------------
+diagnose sys virtual-wan-link health-check
+
+##Virtual WAN Link Service -------------------------------------------------------------------------
+diagnose sys virtual-wan-link service
+
+##IPsec Tunnel Summary -----------------------------------------------------------------------------
+get vpn ipsec tunnel summary
+
+##IPsec Tunnel Details -----------------------------------------------------------------------------
+get vpn ipsec tunnel details
+
+##IPsec Tunnel List --------------------------------------------------------------------------------
+diagnose vpn tunnel list
+
+##IKE Gateway List ---------------------------------------------------------------------------------
+diagnose vpn ike gateway list
+
+##BGP Summary --------------------------------------------------------------------------------------
+get router info bgp summary
+
+##BGP Neighbors ------------------------------------------------------------------------------------
+get router info bgp neighbors
+
+```
