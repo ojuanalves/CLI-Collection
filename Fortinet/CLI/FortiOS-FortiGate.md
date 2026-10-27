@@ -1249,9 +1249,6 @@ diagnose sys top 5 20 3
 ##HA Status ----------------------------------------------------------------------------------------
 get system ha status
 
-##HA Checksum --------------------------------------------------------------------------------------
-diagnose sys ha showcsum
-
 ##Session Count ------------------------------------------------------------------------------------
 get system session status
 
@@ -1282,11 +1279,8 @@ execute log display
 ##SD-WAN Health Check ------------------------------------------------------------------------------
 diagnose sys sdwan health-check
 
-##Virtual WAN Link Health Check --------------------------------------------------------------------
-diagnose sys virtual-wan-link health-check
-
-##Virtual WAN Link Service -------------------------------------------------------------------------
-diagnose sys virtual-wan-link service
+##SD-WAN Service IPv4 ------------------------------------------------------------------------------
+diagnose sys sdwan service4
 
 ##IPsec Tunnel Summary -----------------------------------------------------------------------------
 get vpn ipsec tunnel summary
