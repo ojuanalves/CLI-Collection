@@ -1234,7 +1234,7 @@ https://192.168.253.253:11443/api/v2/cmdb/vpn.ipsec/phase1-interface/VPN_DC-01?p
 https://192.168.1.99:11443/api/v2/cmdb/vpn.ipsec/phase1-interface/VPN_DC-WCS?plain-text-password=1
 ```
 
-## 🔁 Firmware Upgrade
+## ⬆️ Firmware Upgrade
 
 ```
 ##Status -------------------------------------------------------------------------------------------
